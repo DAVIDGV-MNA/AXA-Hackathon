@@ -3,31 +3,58 @@ import { ChatMessage, ChatMessageProps } from "./ChatMessage"
 import { ChatInput } from "./ChatInput"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { FileText, Sparkles } from "lucide-react"
+import { FileText, Sparkles, Bot } from "lucide-react"
 
 export interface ChatInterfaceProps {
   chatId?: string
+  selectedAgent?: string
   onNewMessage?: (message: string, files?: File[]) => void
 }
 
-export function ChatInterface({ chatId, onNewMessage }: ChatInterfaceProps) {
+export function ChatInterface({ chatId, selectedAgent, onNewMessage }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessageProps[]>([])
-  const [mode, setMode] = useState<"retrieve" | "create">("retrieve")
+  // Set mode based on selected agent
+  const getInitialMode = () => {
+    if (selectedAgent === "document-creator") return "create"
+    return "retrieve"
+  }
+  const [mode, setMode] = useState<"retrieve" | "create">(getInitialMode())
+  
+  // Update mode when agent changes
+  useEffect(() => {
+    const newMode = selectedAgent === "document-creator" ? "create" : "retrieve"
+    setMode(newMode)
+  }, [selectedAgent])
   const [isTyping, setIsTyping] = useState(false)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
 
-  // Mock initial messages for demo
+  // Mock initial messages for demo based on selected agent
   useEffect(() => {
-    const initialMessages: ChatMessageProps[] = [
-      {
-        id: "1",
-        content: "Hello! I'm your AI document assistant. I can help you retrieve information from your uploaded documents or generate new policy documents. How can I assist you today?",
-        role: "assistant",
-        timestamp: new Date(Date.now() - 60000),
+    const getInitialMessage = () => {
+      switch (selectedAgent) {
+        case "document-search":
+          return "Hello! I'm your Document Search Agent. I can help you find information from your uploaded documents. Ask me anything about your policies, procedures, or guidelines!"
+        case "document-creator":
+          return "Hello! I'm your Document Creator Agent. I can help you generate new policy documents, procedures, and operational guidelines based on your requirements. What kind of document would you like me to create?"
+        default:
+          return "Hello! Please select an agent to get started with document assistance."
       }
-    ]
-    setMessages(initialMessages)
-  }, [chatId])
+    }
+
+    if (selectedAgent) {
+      const initialMessages: ChatMessageProps[] = [
+        {
+          id: "1",
+          content: getInitialMessage(),
+          role: "assistant",
+          timestamp: new Date(Date.now() - 60000),
+        }
+      ]
+      setMessages(initialMessages)
+    } else {
+      setMessages([])
+    }
+  }, [chatId, selectedAgent])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -61,7 +88,11 @@ export function ChatInterface({ chatId, onNewMessage }: ChatInterfaceProps) {
       let aiResponse = ""
       let documentReferences = undefined
 
-      if (mode === "retrieve") {
+      // Customize responses based on selected agent
+      const isSearchAgent = selectedAgent === "document-search"
+      const isCreatorAgent = selectedAgent === "document-creator"
+
+      if (mode === "retrieve" && isSearchAgent) {
         if (content.toLowerCase().includes("remote work") || content.toLowerCase().includes("work from home")) {
           aiResponse = `Based on your Employee Handbook, here are the key requirements for remote work:\n\n**Eligibility Criteria:**\n• Must be a full-time employee for at least 6 months\n• Satisfactory performance reviews in the last 12 months\n• Role must be suitable for remote work\n\n**Equipment & Support:**\n• Company provides laptop, monitor, and necessary software\n• Monthly internet allowance of $50\n• Ergonomic home office setup budget up to $500\n\n**Requirements:**\n• Must maintain regular communication with team\n• Attend all required meetings via video conference\n• Available during core business hours (9 AM - 3 PM)`
           
@@ -87,13 +118,16 @@ export function ChatInterface({ chatId, onNewMessage }: ChatInterfaceProps) {
         } else {
           aiResponse = `I can help you find information from your uploaded documents. Try asking about:\n\n• Remote work policies\n• Data privacy guidelines\n• Employee benefits\n• Operational procedures\n• Compliance requirements\n\nOr upload new documents for me to analyze!`
         }
-      } else {
-        // Create mode
+      } else if (mode === "create" && isCreatorAgent) {
+        // Create mode for document creator agent
         if (content.toLowerCase().includes("policy") || content.toLowerCase().includes("create")) {
           aiResponse = `I'll help you create a new policy document. Based on your request, I suggest creating a structured policy with these sections:\n\n**1. Purpose & Scope**\n• Define the policy's objective\n• Specify who it applies to\n\n**2. Guidelines & Procedures**\n• Clear step-by-step instructions\n• Roles and responsibilities\n\n**3. Compliance & Enforcement**\n• Monitoring procedures\n• Consequences for non-compliance\n\n**4. Review & Updates**\n• Regular review schedule\n• Update procedures\n\nWould you like me to draft a specific policy? Please provide more details about what type of policy you need.`
         } else {
-          aiResponse = `I'm in document creation mode. I can help you generate new policies, procedures, or operational documents based on:\n\n• Existing document templates\n• Best practice guidelines\n• Regulatory requirements\n• Your specific business needs\n\nWhat type of document would you like me to create?`
+          aiResponse = `I'm your Document Creator Agent, specialized in generating comprehensive documents. I can help you create:\n\n• **Policy Documents:** Company policies, guidelines, and procedures\n• **Operational Manuals:** Step-by-step guides and workflows\n• **Compliance Documents:** Regulatory and compliance materials\n• **Training Materials:** Employee handbooks and guides\n\nWhat type of document would you like me to create? Please provide details about the purpose, scope, and any specific requirements.`
         }
+      } else {
+        // Default response for unrecognized modes or agents
+        aiResponse = `I'm here to help! Please let me know what you'd like to do - search for information in documents or create new ones.`
       }
 
       const aiMessage: ChatMessageProps = {
@@ -127,12 +161,14 @@ export function ChatInterface({ chatId, onNewMessage }: ChatInterfaceProps) {
           </div>
           <div>
             <h2 className="font-semibold">
-              {mode === "retrieve" ? "Document Retrieval" : "Document Creation"}
+              {selectedAgent === "document-search" ? "Document Search Agent" :
+               selectedAgent === "document-creator" ? "Document Creator Agent" :
+               mode === "retrieve" ? "Document Retrieval" : "Document Creation"}
             </h2>
             <p className="text-xs text-muted-foreground">
-              {mode === "retrieve" 
-                ? "Ask questions about your documents" 
-                : "Generate new policy documents"
+              {selectedAgent === "document-search" ? "Ask questions about your documents" :
+               selectedAgent === "document-creator" ? "Generate new documents and policies" :
+               mode === "retrieve" ? "Ask questions about your documents" : "Generate new policy documents"
               }
             </p>
           </div>
@@ -142,23 +178,35 @@ export function ChatInterface({ chatId, onNewMessage }: ChatInterfaceProps) {
       {/* Messages */}
       <ScrollArea ref={scrollAreaRef} className="flex-1 p-4">
         <div className="space-y-4">
-          {isEmpty && (
+          {isEmpty && selectedAgent && (
             <div className="text-center py-12">
               <div className="rounded-full bg-muted/50 p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                {mode === "retrieve" ? (
+                {selectedAgent === "document-search" ? (
                   <FileText className="h-8 w-8 text-muted-foreground" />
                 ) : (
                   <Sparkles className="h-8 w-8 text-muted-foreground" />
                 )}
               </div>
               <h3 className="text-lg font-medium mb-2">
-                {mode === "retrieve" ? "Ask About Your Documents" : "Create New Documents"}
+                {selectedAgent === "document-search" ? "Ask About Your Documents" : "Create New Documents"}
               </h3>
               <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                {mode === "retrieve" 
-                  ? "I can help you find information from your uploaded documents. Ask me anything about policies, procedures, or guidelines."
-                  : "I can help you generate new policy documents, procedures, and guidelines based on your requirements and best practices."
+                {selectedAgent === "document-search"
+                  ? "I specialize in searching through your uploaded documents. Ask me anything about policies, procedures, or guidelines and I'll find the relevant information."
+                  : "I specialize in creating new documents from scratch. Tell me what kind of policy, procedure, or manual you need and I'll help you generate it."
                 }
+              </p>
+            </div>
+          )}
+          
+          {isEmpty && !selectedAgent && (
+            <div className="text-center py-12">
+              <div className="rounded-full bg-muted/50 p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                <Bot className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-medium mb-2">Select an Agent</h3>
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                Choose an AI agent to get started with document assistance.
               </p>
             </div>
           )}
@@ -183,13 +231,15 @@ export function ChatInterface({ chatId, onNewMessage }: ChatInterfaceProps) {
       <div className="p-4 border-t">
         <ChatInput
           onSendMessage={handleSendMessage}
-          disabled={isTyping}
+          disabled={isTyping || !selectedAgent}
           mode={mode}
           onModeChange={setMode}
           placeholder={
-            mode === "retrieve" 
+            selectedAgent === "document-search" 
               ? "Ask about your documents..." 
-              : "Describe the document you'd like me to create..."
+              : selectedAgent === "document-creator"
+              ? "Describe the document you'd like me to create..."
+              : "Select an agent to start chatting..."
           }
         />
       </div>

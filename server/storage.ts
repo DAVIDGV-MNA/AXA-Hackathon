@@ -11,7 +11,7 @@ export interface IStorage {
 }
 
 export class MemStorage implements IStorage {
-  private users: Map<string, User>;
+  private users: Map<string, User >;
 
   constructor() {
     this.users = new Map();
