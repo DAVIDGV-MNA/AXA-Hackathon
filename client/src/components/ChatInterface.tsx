@@ -4,6 +4,7 @@ import { ChatInput } from "./ChatInput"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FileText, Sparkles, Bot } from "lucide-react"
+import { apiClient } from "@/lib/api"
 
 export interface ChatInterfaceProps {
   chatId?: string
@@ -83,64 +84,71 @@ export function ChatInterface({ chatId, selectedAgent, onNewMessage }: ChatInter
     // Show typing indicator
     setIsTyping(true)
 
-    // Simulate AI response with mock data
-    setTimeout(() => {
-      let aiResponse = ""
-      let documentReferences = undefined
+    try {
+      // For document search agent, search documents first
+      if (selectedAgent === "document-search") {
+        // Search for relevant documents
+        const searchResults = await apiClient.searchDocuments(content)
+        
+        // Generate AI response with context
+        const response = await apiClient.generateResponse(content, searchResults, "document-search")
+        
+        // Create document references from search results
+        const documentReferences = searchResults.map(result => ({
+          id: result.document.id,
+          title: result.document.title,
+          type: result.document.type as "politics" | "operations" | "manual",
+          excerpt: result.chunk.content.substring(0, 150) + "..."
+        }))
 
-      // Customize responses based on selected agent
-      const isSearchAgent = selectedAgent === "document-search"
-      const isCreatorAgent = selectedAgent === "document-creator"
+        const aiMessage: ChatMessageProps = {
+          id: `msg-${Date.now()}-ai`,
+          content: response.response,
+          role: "assistant",
+          timestamp: new Date(),
+          documentReferences: documentReferences.length > 0 ? documentReferences : undefined
+        }
 
-      if (mode === "retrieve" && isSearchAgent) {
-        if (content.toLowerCase().includes("remote work") || content.toLowerCase().includes("work from home")) {
-          aiResponse = `Based on your Employee Handbook, here are the key requirements for remote work:\n\n**Eligibility Criteria:**\n• Must be a full-time employee for at least 6 months\n• Satisfactory performance reviews in the last 12 months\n• Role must be suitable for remote work\n\n**Equipment & Support:**\n• Company provides laptop, monitor, and necessary software\n• Monthly internet allowance of $50\n• Ergonomic home office setup budget up to $500\n\n**Requirements:**\n• Must maintain regular communication with team\n• Attend all required meetings via video conference\n• Available during core business hours (9 AM - 3 PM)`
-          
-          documentReferences = [
-            {
-              id: "doc-handbook",
-              title: "Employee Handbook 2024",
-              type: "manual" as const,
-              excerpt: "Section 3.2 outlines the remote work policy including eligibility criteria and equipment provisions."
-            }
-          ]
-        } else if (content.toLowerCase().includes("privacy") || content.toLowerCase().includes("data")) {
-          aiResponse = `Here's what I found about data privacy in your policies:\n\n**Data Collection:**\n• Only collect data necessary for business operations\n• Obtain explicit consent for personal data collection\n• Provide clear privacy notices\n\n**Data Protection:**\n• Encrypt sensitive data both in transit and at rest\n• Regular security audits and penetration testing\n• Access controls based on principle of least privilege\n\n**Compliance:**\n• GDPR compliant data processing procedures\n• Data retention policies with automatic deletion\n• Regular staff training on privacy practices`
-          
-          documentReferences = [
-            {
-              id: "doc-privacy",
-              title: "Data Privacy Policy v2.1",
-              type: "politics" as const,
-              excerpt: "Comprehensive data protection guidelines covering GDPR compliance and security measures."
-            }
-          ]
-        } else {
-          aiResponse = `I can help you find information from your uploaded documents. Try asking about:\n\n• Remote work policies\n• Data privacy guidelines\n• Employee benefits\n• Operational procedures\n• Compliance requirements\n\nOr upload new documents for me to analyze!`
+        setIsTyping(false)
+        setMessages(prev => [...prev, aiMessage])
+      } else if (selectedAgent === "document-creator") {
+        // For document creator, generate response directly
+        const response = await apiClient.generateResponse(content, [], "document-creator")
+        
+        const aiMessage: ChatMessageProps = {
+          id: `msg-${Date.now()}-ai`,
+          content: response.response,
+          role: "assistant",
+          timestamp: new Date()
         }
-      } else if (mode === "create" && isCreatorAgent) {
-        // Create mode for document creator agent
-        if (content.toLowerCase().includes("policy") || content.toLowerCase().includes("create")) {
-          aiResponse = `I'll help you create a new policy document. Based on your request, I suggest creating a structured policy with these sections:\n\n**1. Purpose & Scope**\n• Define the policy's objective\n• Specify who it applies to\n\n**2. Guidelines & Procedures**\n• Clear step-by-step instructions\n• Roles and responsibilities\n\n**3. Compliance & Enforcement**\n• Monitoring procedures\n• Consequences for non-compliance\n\n**4. Review & Updates**\n• Regular review schedule\n• Update procedures\n\nWould you like me to draft a specific policy? Please provide more details about what type of policy you need.`
-        } else {
-          aiResponse = `I'm your Document Creator Agent, specialized in generating comprehensive documents. I can help you create:\n\n• **Policy Documents:** Company policies, guidelines, and procedures\n• **Operational Manuals:** Step-by-step guides and workflows\n• **Compliance Documents:** Regulatory and compliance materials\n• **Training Materials:** Employee handbooks and guides\n\nWhat type of document would you like me to create? Please provide details about the purpose, scope, and any specific requirements.`
-        }
+
+        setIsTyping(false)
+        setMessages(prev => [...prev, aiMessage])
       } else {
-        // Default response for unrecognized modes or agents
-        aiResponse = `I'm here to help! Please let me know what you'd like to do - search for information in documents or create new ones.`
-      }
+        // Fallback for no agent selected
+        const aiMessage: ChatMessageProps = {
+          id: `msg-${Date.now()}-ai`,
+          content: "Please select an agent to get started. Use the 'Switch Agent' button in the header.",
+          role: "assistant",
+          timestamp: new Date()
+        }
 
-      const aiMessage: ChatMessageProps = {
-        id: `msg-${Date.now()}-ai`,
-        content: aiResponse,
+        setIsTyping(false)
+        setMessages(prev => [...prev, aiMessage])
+      }
+    } catch (error) {
+      console.error("Error generating response:", error)
+      
+      const errorMessage: ChatMessageProps = {
+        id: `msg-${Date.now()}-error`,
+        content: "Sorry, I encountered an error while processing your request. Please try again.",
         role: "assistant",
-        timestamp: new Date(),
-        documentReferences
+        timestamp: new Date()
       }
 
       setIsTyping(false)
-      setMessages(prev => [...prev, aiMessage])
-    }, 1500 + Math.random() * 1000)
+      setMessages(prev => [...prev, errorMessage])
+    }
 
     onNewMessage?.(content, files)
   }

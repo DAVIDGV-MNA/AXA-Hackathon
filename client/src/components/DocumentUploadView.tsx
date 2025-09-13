@@ -3,7 +3,10 @@ import { DocumentUpload, UploadFile } from "./DocumentUpload"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Upload, FileText, CheckCircle2, AlertTriangle } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+import { apiClient } from "@/lib/api"
 
 export interface DocumentUploadViewProps {
   onBackToDocuments?: () => void
@@ -12,6 +15,8 @@ export interface DocumentUploadViewProps {
 export function DocumentUploadView({ onBackToDocuments }: DocumentUploadViewProps) {
   const [uploadingFiles, setUploadingFiles] = useState<UploadFile[]>([])
   const [completedUploads, setCompletedUploads] = useState<UploadFile[]>([])
+  const [documentType, setDocumentType] = useState<"politics" | "operations" | "manual">("operations")
+  const { toast } = useToast()
 
   const handleFileUpload = (files: File[]) => {
     console.log("Files selected for upload:", files.map(f => f.name))
@@ -22,29 +27,68 @@ export function DocumentUploadView({ onBackToDocuments }: DocumentUploadViewProp
       file,
       progress: 0,
       status: "uploading" as const,
-      // todo: remove mock functionality - implement real type detection
-      type: index % 3 === 0 ? "politics" : index % 3 === 1 ? "operations" : "manual"
+      type: documentType
     }))
 
     setUploadingFiles(prev => [...prev, ...newUploads])
 
-    // Simulate upload process
-    newUploads.forEach((upload, index) => {
-      let progress = 0
-      const interval = setInterval(() => {
-        progress += Math.random() * 25 + 5
-        if (progress >= 100) {
-          progress = 100
-          setUploadingFiles(prev => prev.filter(u => u.id !== upload.id))
-          setCompletedUploads(prev => [...prev, { ...upload, progress, status: "completed" }])
-          clearInterval(interval)
-        } else {
-          setUploadingFiles(prev => 
-            prev.map(u => u.id === upload.id ? { ...u, progress } : u)
-          )
-        }
-      }, 200 + index * 150)
+    // Upload each file to the backend
+    newUploads.forEach(upload => {
+      uploadFileToBackend(upload)
     })
+  }
+
+  const uploadFileToBackend = async (uploadFile: UploadFile) => {
+    try {
+      // Start upload progress simulation
+      const progressInterval = setInterval(() => {
+        setUploadingFiles(prev => 
+          prev.map(file => {
+            if (file.id === uploadFile.id && file.progress < 90) {
+              return { ...file, progress: Math.min(file.progress + Math.random() * 20, 90) }
+            }
+            return file
+          })
+        )
+      }, 300)
+
+      // Actually upload the file
+      const result = await apiClient.uploadDocument(uploadFile.file, uploadFile.type!)
+      
+      clearInterval(progressInterval)
+      
+      // Mark as completed and move to completed uploads
+      setUploadingFiles(prev => prev.filter(u => u.id !== uploadFile.id))
+      setCompletedUploads(prev => [...prev, { 
+        ...uploadFile, 
+        progress: 100, 
+        status: "completed" as const 
+      }])
+
+      toast({
+        title: "Upload Complete",
+        description: `${uploadFile.file.name} has been successfully uploaded. Created ${result.chunksCreated} text chunks.`,
+        action: <CheckCircle2 className="h-4 w-4 text-green-500" />
+      })
+
+    } catch (error) {
+      console.error("Upload failed:", error)
+      
+      setUploadingFiles(prev => 
+        prev.map(file => 
+          file.id === uploadFile.id 
+            ? { ...file, progress: 100, status: "error" as const }
+            : file
+        )
+      )
+
+      toast({
+        title: "Upload Failed",
+        description: error instanceof Error ? error.message : `Failed to upload ${uploadFile.file.name}. Please try again.`,
+        variant: "destructive",
+        action: <AlertTriangle className="h-4 w-4" />
+      })
+    }
   }
 
   const handleFileRemove = (fileId: string) => {
@@ -85,6 +129,28 @@ export function DocumentUploadView({ onBackToDocuments }: DocumentUploadViewProp
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-4 space-y-6">
+        {/* Document Type Selector */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Document Category</label>
+              <Select value={documentType} onValueChange={(value: "politics" | "operations" | "manual") => setDocumentType(value)}>
+                <SelectTrigger className="w-64" data-testid="select-document-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="politics">Politics & Policies</SelectItem>
+                  <SelectItem value="operations">Operations</SelectItem>
+                  <SelectItem value="manual">Manual & Guides</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Choose the appropriate category for better organization and search
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Upload Zone */}
         <DocumentUpload
           onFileUpload={handleFileUpload}
