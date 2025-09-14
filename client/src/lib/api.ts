@@ -162,6 +162,23 @@ class ApiClient {
 
     return response.json();
   }
+
+  async saveDocument(title: string, content: string, type: "politics" | "operations" | "manual"): Promise<{ document: Document; chunksCreated: number; message: string }> {
+    const response = await fetch(`${this.baseUrl}/documents/save`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ title, content, type }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Failed to save document");
+    }
+
+    return response.json();
+  }
 }
 
 export const apiClient = new ApiClient();

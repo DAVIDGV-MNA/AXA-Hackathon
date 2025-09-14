@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { createDocumentCreatorPrompt } from "./documentTemplates";
 
 // Use stable, supported models for better reliability
 const openai = new OpenAI({ 
@@ -166,6 +167,8 @@ Your role is to:
 
 When context from documents is provided, use it to give detailed, accurate responses. Always cite your sources when referencing document content.`;
     } else if (agentType === "document-creator") {
+      // Use enhanced prompt from templates for better document generation
+      const enhancedPrompt = createDocumentCreatorPrompt(trimmedMessage);
       systemPrompt = `You are a Document Creator Agent specialized in generating comprehensive, well-structured documents.
 
 Your role is to:
@@ -173,8 +176,12 @@ Your role is to:
 - Structure content with clear headings, sections, and formatting
 - Ensure documents are comprehensive and professional
 - Adapt writing style to the document type (policy, manual, guide, etc.)
+- Use professional markdown formatting for structure and readability
 
-Generate content that is practical, actionable, and professionally formatted.`;
+Generate content that is practical, actionable, and professionally formatted. Always include clear headings, bullet points where appropriate, and ensure the document could be saved and used as a reference.`;
+      
+      // Replace user message with enhanced template prompt
+      message = enhancedPrompt;
     }
 
     const messages: Array<{ role: "system" | "user"; content: string }> = [
@@ -194,8 +201,8 @@ Generate content that is practical, actionable, and professionally formatted.`;
       openai.chat.completions.create({
         model: "gpt-4o-mini", // Use stable, supported model for better reliability
         messages,
-        max_tokens: 1500,
-        temperature: 0.7,
+        max_tokens: agentType === "document-creator" ? 3000 : 1500, // Allow longer responses for document creation
+        temperature: agentType === "document-creator" ? 0.8 : 0.7, // Slightly more creative for document generation
       })
     );
 

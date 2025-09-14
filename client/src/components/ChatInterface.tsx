@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from "react"
 import { ChatMessage, ChatMessageProps } from "./ChatMessage"
 import { ChatInput } from "./ChatInput"
+import { SaveDocumentDialog } from "./SaveDocumentDialog"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FileText, Sparkles, Bot } from "lucide-react"
 import { apiClient } from "@/lib/api"
+import { useSaveDocument } from "@/hooks/use-save-document"
 
 export interface ChatInterfaceProps {
   chatId?: string
@@ -28,6 +30,28 @@ export function ChatInterface({ chatId, selectedAgent, onNewMessage }: ChatInter
   }, [selectedAgent])
   const [isTyping, setIsTyping] = useState(false)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+
+  // Save Document Dialog state
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false)
+  const [contentToSave, setContentToSave] = useState("")
+  const saveDocumentMutation = useSaveDocument()
+
+  // Save Document handlers
+  const handleSaveDocument = (content: string) => {
+    setContentToSave(content)
+    setSaveDialogOpen(true)
+  }
+
+  const handleConfirmSave = async (title: string, type: "politics" | "operations" | "manual") => {
+    try {
+      await saveDocumentMutation.mutateAsync({ title, content: contentToSave, type })
+      setSaveDialogOpen(false)
+      setContentToSave("")
+    } catch (error) {
+      // Error is handled by the mutation's onError callback
+      console.error("Save document error:", error)
+    }
+  }
 
   // Mock initial messages for demo based on selected agent
   useEffect(() => {
@@ -220,7 +244,13 @@ export function ChatInterface({ chatId, selectedAgent, onNewMessage }: ChatInter
           )}
 
           {messages.map((message) => (
-            <ChatMessage key={message.id} {...message} />
+            <ChatMessage 
+              key={message.id} 
+              {...message} 
+              agentType={selectedAgent as "document-search" | "document-creator"}
+              onSaveDocument={handleSaveDocument}
+              isSaving={saveDocumentMutation.isPending}
+            />
           ))}
 
           {isTyping && (
@@ -230,6 +260,7 @@ export function ChatInterface({ chatId, selectedAgent, onNewMessage }: ChatInter
               role="assistant"
               timestamp={new Date()}
               isTyping={true}
+              agentType={selectedAgent as "document-search" | "document-creator"}
             />
           )}
         </div>
@@ -251,6 +282,15 @@ export function ChatInterface({ chatId, selectedAgent, onNewMessage }: ChatInter
           }
         />
       </div>
+
+      {/* Save Document Dialog */}
+      <SaveDocumentDialog
+        isOpen={saveDialogOpen}
+        onOpenChange={setSaveDialogOpen}
+        content={contentToSave}
+        onSave={handleConfirmSave}
+        isLoading={saveDocumentMutation.isPending}
+      />
     </div>
   )
 }

@@ -1,7 +1,8 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
-import { Bot, User, FileText, File } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Bot, User, FileText, File, Save } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export interface DocumentReference {
@@ -18,6 +19,9 @@ export interface ChatMessageProps {
   timestamp: Date
   documentReferences?: DocumentReference[]
   isTyping?: boolean
+  agentType?: "document-search" | "document-creator"
+  onSaveDocument?: (content: string) => void
+  isSaving?: boolean
 }
 
 const typeColors = {
@@ -31,7 +35,10 @@ export function ChatMessage({
   role, 
   timestamp, 
   documentReferences,
-  isTyping = false 
+  isTyping = false,
+  agentType,
+  onSaveDocument,
+  isSaving = false
 }: ChatMessageProps) {
   const isUser = role === "user"
 
@@ -77,6 +84,22 @@ export function ChatMessage({
             )}>
               <p className="text-sm leading-relaxed whitespace-pre-wrap">{content}</p>
             </Card>
+          )}
+
+          {!isUser && !isTyping && agentType === "document-creator" && content.trim().length > 50 && onSaveDocument && (
+            <div className="flex justify-start">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onSaveDocument(content)}
+                disabled={isSaving}
+                className="gap-2"
+                data-testid="button-save-document"
+              >
+                <Save className="h-4 w-4" />
+                {isSaving ? "Saving..." : "Save as Document"}
+              </Button>
+            </div>
           )}
 
           {documentReferences && documentReferences.length > 0 && (

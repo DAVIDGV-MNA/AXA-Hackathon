@@ -136,7 +136,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Store chunks with embeddings
       const createdChunks = await storage.createDocumentChunksWithEmbeddings(chunks);
 
-      res.json({ document, chunksCreated: chunks.length });
+      res.json({ document, chunksCreated: createdChunks.length });
     } catch (error) {
       console.error("Error uploading document:", error);
       res.status(500).json({ error: "Failed to upload document" });
@@ -271,6 +271,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ response });
     } catch (error) {
       return handleError(error, res, "generate response");
+    }
+  });
+
+  // Save generated document
+  app.post("/api/documents/save", async (req, res) => {
+    try {
+      const { title, content, type } = req.body;
+      
+      if (!title || typeof title !== 'string' || title.trim().length === 0) {
+        return res.status(400).json({ error: "Valid title is required" });
+      }
+      
+      if (!content || typeof content !== 'string' || content.trim().length === 0) {
+        return res.status(400).json({ error: "Valid content is required" });
+      }
+      
+      if (!type || !["politics", "operations", "manual"].includes(type)) {
+        return res.status(400).json({ error: "Valid document type is required (politics, operations, or manual)" });
+      }
+
+      // Validate and create document
+      const documentData = insertDocumentSchema.parse({
+        title: title.trim(),
+        content: content.trim(),
+        type,
+        fileName: `${title.trim().replace(/[^a-zA-Z0-9]/g, '_')}.md`, // Generate filename from title
+      });
+
+      const document = await storage.createDocument(documentData);
+
+      // Create chunks for the generated document for future searching
+      const chunkSize = 1000;
+      const overlap = 200;
+      const chunks = [];
+      
+      for (let i = 0; i < content.length; i += chunkSize - overlap) {
+        const chunkContent = content.slice(i, i + chunkSize);
+        if (chunkContent.trim()) {
+          chunks.push({
+            documentId: document.id,
+            content: chunkContent,
+            chunkIndex: Math.floor(i / (chunkSize - overlap)),
+          });
+        }
+      }
+
+      // Store chunks with embeddings for future search
+      let createdChunks = [];
+      if (chunks.length > 0) {
+        createdChunks = await storage.createDocumentChunksWithEmbeddings(chunks);
+      }
+
+      res.json({ 
+        document, 
+        chunksCreated: createdChunks.length,
+        message: "Document saved successfully and is now searchable"
+      });
+    } catch (error) {
+      return handleError(error, res, "save generated document");
     }
   });
 
