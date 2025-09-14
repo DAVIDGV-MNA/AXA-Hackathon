@@ -19,6 +19,7 @@ import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import { eq, desc, sql } from "drizzle-orm";
 import * as bcrypt from "bcryptjs";
+import { generateEmbedding, generateBatchEmbeddings } from "./openai";
 
 // Environment variable validation
 const databaseUrl = process.env.DATABASE_URL;
@@ -55,8 +56,10 @@ export interface IStorage {
   
   // Document chunk operations
   createDocumentChunk(chunk: InsertDocumentChunk): Promise<DocumentChunk>;
+  createDocumentChunksWithEmbeddings(chunks: InsertDocumentChunk[]): Promise<DocumentChunk[]>;
   getDocumentChunks(documentId: string): Promise<DocumentChunk[]>;
   searchDocumentChunks(query: string, limit?: number): Promise<DocumentChunk[]>;
+  searchDocumentChunksByVector(queryEmbedding: number[], limit?: number): Promise<Array<DocumentChunk & { similarity: number; document?: Document }>>;
   
   // Chat session operations
   createChatSession(session: InsertChatSession): Promise<ChatSession>;
@@ -132,6 +135,33 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  async createDocumentChunksWithEmbeddings(chunks: InsertDocumentChunk[]): Promise<DocumentChunk[]> {
+    if (chunks.length === 0) return [];
+
+    // Extract texts for embedding generation
+    const texts = chunks.map(chunk => chunk.content);
+    
+    try {
+      // Generate embeddings for all chunks
+      const embeddings = await generateBatchEmbeddings(texts);
+      
+      // Combine chunks with their embeddings
+      const chunksWithEmbeddings = chunks.map((chunk, index) => ({
+        ...chunk,
+        embedding: embeddings[index].embedding
+      }));
+
+      // Insert all chunks with embeddings
+      const result = await db.insert(documentChunks).values(chunksWithEmbeddings).returning();
+      return result;
+    } catch (error) {
+      console.error("Error creating chunks with embeddings:", error);
+      // Fallback: create chunks without embeddings
+      const result = await db.insert(documentChunks).values(chunks).returning();
+      return result;
+    }
+  }
+
   async getDocumentChunks(documentId: string): Promise<DocumentChunk[]> {
     return await db.select().from(documentChunks)
       .where(eq(documentChunks.documentId, documentId))
@@ -143,6 +173,64 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(documentChunks)
       .where(sql`${documentChunks.content} ILIKE ${`%${query}%`}`)
       .limit(limit);
+  }
+
+  async searchDocumentChunksByVector(queryEmbedding: number[], limit = 5): Promise<Array<DocumentChunk & { similarity: number; document?: Document }>> {
+    try {
+      // Use pgvector's cosine similarity for semantic search with JOIN to avoid N+1 queries
+      const result = await db.execute(sql`
+        SELECT 
+          dc.id,
+          dc.document_id,
+          dc.content,
+          dc.chunk_index,
+          dc.embedding,
+          1 - (dc.embedding <=> ${JSON.stringify(queryEmbedding)}::vector) as similarity,
+          d.title as document_title,
+          d.type as document_type,
+          d.file_name as document_file_name,
+          d.uploaded_at as document_uploaded_at,
+          d.user_id as document_user_id
+        FROM document_chunks dc
+        INNER JOIN documents d ON dc.document_id = d.id
+        WHERE dc.embedding IS NOT NULL
+        ORDER BY dc.embedding <=> ${JSON.stringify(queryEmbedding)}::vector
+        LIMIT ${limit}
+      `);
+
+      return result.rows.map((row: any) => ({
+        id: row.id,
+        documentId: row.document_id,
+        content: row.content,
+        chunkIndex: row.chunk_index,
+        embedding: row.embedding,
+        similarity: parseFloat(row.similarity),
+        document: {
+          id: row.document_id,
+          title: row.document_title,
+          type: row.document_type,
+          fileName: row.document_file_name,
+          uploadedAt: row.document_uploaded_at,
+          userId: row.document_user_id,
+          content: "" // Not needed for search results
+        }
+      }));
+    } catch (error) {
+      console.error("Vector search error:", error);
+      // Fallback to text search with document info
+      const chunks = await this.searchDocumentChunks(queryEmbedding.toString(), limit);
+      const results = await Promise.all(
+        chunks.map(async (chunk) => {
+          const document = await this.getDocument(chunk.documentId);
+          return {
+            ...chunk,
+            similarity: 0.5, // Default similarity score
+            document
+          };
+        })
+      );
+      return results;
+    }
   }
 
   // Chat session operations

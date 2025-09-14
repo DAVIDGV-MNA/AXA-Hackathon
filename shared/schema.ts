@@ -24,7 +24,7 @@ export const documentChunks = pgTable("document_chunks", {
   documentId: varchar("document_id").references(() => documents.id).notNull(),
   content: text("content").notNull(),
   chunkIndex: integer("chunk_index").notNull(),
-  embedding: vector("embedding", { dimensions: 384 }), // For sentence-transformers
+  embedding: vector("embedding", { dimensions: 1536 }), // For text-embedding-3-small
 });
 
 export const chatSessions = pgTable("chat_sessions", {

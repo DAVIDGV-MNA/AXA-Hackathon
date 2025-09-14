@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import multer from "multer";
 import { insertDocumentSchema, insertChatSessionSchema, insertChatMessageSchema, insertUserSchema } from "@shared/schema";
 import { ZodError } from "zod";
+import { generateEmbedding, generateChatResponse } from "./openai";
 
 // Configure multer for file uploads
 const upload = multer({ 
@@ -132,10 +133,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Store chunks
-      for (const chunk of chunks) {
-        await storage.createDocumentChunk(chunk);
-      }
+      // Store chunks with embeddings
+      const createdChunks = await storage.createDocumentChunksWithEmbeddings(chunks);
 
       res.json({ document, chunksCreated: chunks.length });
     } catch (error) {
@@ -203,18 +202,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Valid query string is required" });
       }
 
-      const chunks = await storage.searchDocumentChunks(query.trim(), 5);
+      let results = [];
       
-      // Get document details for each chunk
-      const results = await Promise.all(
-        chunks.map(async (chunk) => {
-          const document = await storage.getDocument(chunk.documentId);
-          return {
-            chunk,
-            document,
-          };
-        })
-      );
+      try {
+        // Generate embedding for the query and use vector search
+        const queryEmbedding = await generateEmbedding(query.trim());
+        const chunks = await storage.searchDocumentChunksByVector(queryEmbedding.embedding, 5);
+        
+        // Vector search returns document info included
+        results = chunks.map((chunk) => ({
+          chunk: {
+            id: chunk.id,
+            documentId: chunk.documentId,
+            content: chunk.content,
+            chunkIndex: chunk.chunkIndex,
+            embedding: chunk.embedding
+          },
+          document: chunk.document,
+        }));
+      } catch (error) {
+        console.warn("Vector search failed, falling back to text search:", error);
+        
+        // Fallback to text search if embedding generation fails
+        const chunks = await storage.searchDocumentChunks(query.trim(), 5);
+        
+        // For text search fallback, need to fetch document details
+        results = await Promise.all(
+          chunks.map(async (chunk) => {
+            const document = await storage.getDocument(chunk.documentId);
+            return {
+              chunk,
+              document,
+            };
+          })
+        );
+      }
 
       res.json(results);
     } catch (error) {
@@ -222,7 +244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Generate response (mock for now - would integrate with actual AI service)
+  // Generate response using OpenAI
   app.post("/api/generate", async (req, res) => {
     try {
       const { prompt, context, agentType } = req.body;
@@ -235,20 +257,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Valid agentType is required (document-search or document-creator)" });
       }
       
-      // Mock AI response based on agent type
-      let response = "";
-      if (agentType === "document-search") {
-        response = `Based on your documents, here's what I found regarding "${prompt}":\n\n`;
-        if (context && Array.isArray(context) && context.length > 0) {
-          response += context.map((item: any, index: number) => 
-            `**${item.document?.title || 'Document'}** (${item.document?.type})\n${item.chunk.content.substring(0, 200)}...`
-          ).join('\n\n');
-        } else {
-          response += "I couldn't find specific information about this topic in your uploaded documents. Please try a different search term or upload more relevant documents.";
-        }
-      } else if (agentType === "document-creator") {
-        response = `I'll help you create a document about "${prompt}". Here's a draft structure:\n\n**Document Title:** ${prompt}\n\n**1. Overview**\n[Introduction and purpose]\n\n**2. Key Points**\n[Main content sections]\n\n**3. Guidelines**\n[Specific requirements or procedures]\n\n**4. Implementation**\n[Action items and next steps]\n\nWould you like me to expand on any particular section?`;
+      // Build context string from search results
+      let contextString = "";
+      if (context && Array.isArray(context) && context.length > 0) {
+        contextString = context.map((item: any) => 
+          `Document: ${item.document?.title || 'Unknown'} (${item.document?.type})\nContent: ${item.chunk.content}`
+        ).join('\n\n---\n\n');
       }
+      
+      // Generate AI response using OpenAI
+      const response = await generateChatResponse(prompt, contextString, agentType);
 
       res.json({ response });
     } catch (error) {
