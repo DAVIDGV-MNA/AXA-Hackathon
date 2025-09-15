@@ -194,7 +194,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Search documents
+  // === PENDING: AI-powered search ===
+  // TODO: Implement vector similarity search
   app.post("/api/search", async (req, res) => {
     try {
       const { query } = req.body;
@@ -244,7 +245,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Generate response using OpenAI
+  // === PENDING: AI response generation ===
+  // TODO: Implement OpenAI chat completion
   app.post("/api/generate", async (req, res) => {
     try {
       const { prompt, context, agentType } = req.body;

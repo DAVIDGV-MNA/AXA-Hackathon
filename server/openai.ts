@@ -1,6 +1,10 @@
 import OpenAI from "openai";
 import { createDocumentCreatorPrompt } from "./documentTemplates";
 
+// === PENDING: AI/OpenAI Integration ===
+// TODO: Implement OpenAI API integration
+// All functions below are marked as pending implementation
+
 // Use stable, supported models for better reliability
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY 
@@ -62,7 +66,8 @@ export interface SearchResult {
 }
 
 /**
- * Generate embeddings for text using OpenAI's text-embedding-3-small model
+ * PENDING: Generate embeddings for text using OpenAI's text-embedding-3-small model
+ * TODO: Implement OpenAI embedding generation
  */
 export async function generateEmbedding(text: string): Promise<EmbeddingResult> {
   validateOpenAIKey();
@@ -95,7 +100,8 @@ export async function generateEmbedding(text: string): Promise<EmbeddingResult> 
 }
 
 /**
- * Generate batch embeddings for multiple texts
+ * PENDING: Generate batch embeddings for multiple texts
+ * TODO: Implement OpenAI batch embedding generation
  */
 export async function generateBatchEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
   if (texts.length === 0) return [];
@@ -133,7 +139,8 @@ export async function generateBatchEmbeddings(texts: string[]): Promise<Embeddin
 }
 
 /**
- * Generate AI response using chat completion
+ * PENDING: Generate AI response using chat completion
+ * TODO: Implement OpenAI chat completion
  */
 export async function generateChatResponse(
   message: string, 

@@ -1,3 +1,5 @@
+// === PENDING: Document Generation Templates ===
+// TODO: Implement AI document generation templates
 // Document template system for the Document Creator Agent
 export interface DocumentTemplate {
   id: string;

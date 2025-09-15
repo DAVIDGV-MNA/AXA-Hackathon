@@ -19,6 +19,8 @@ import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import { eq, desc, sql } from "drizzle-orm";
 import * as bcrypt from "bcryptjs";
+// === PENDING: Vector Database Operations ===  
+// TODO: Implement vector database functionality
 import { generateEmbedding, generateBatchEmbeddings } from "./openai";
 
 // Environment variable validation
@@ -135,6 +137,7 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  // PENDING: Vector database operation - embeddings generation
   async createDocumentChunksWithEmbeddings(chunks: InsertDocumentChunk[]): Promise<DocumentChunk[]> {
     if (chunks.length === 0) return [];
 
@@ -175,6 +178,7 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  // PENDING: Vector database operation - similarity search
   async searchDocumentChunksByVector(queryEmbedding: number[], limit = 5): Promise<Array<DocumentChunk & { similarity: number; document?: Document }>> {
     try {
       // Use pgvector's cosine similarity for semantic search with JOIN to avoid N+1 queries
