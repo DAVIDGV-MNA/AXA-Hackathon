@@ -129,7 +129,8 @@ class ApiClient {
     return response.json();
   }
 
-  // Search operations
+  // === PENDING: AI-powered search ===
+  // TODO: Implement vector similarity search
   async searchDocuments(query: string): Promise<SearchResult[]> {
     const response = await fetch(`${this.baseUrl}/search`, {
       method: "POST",
@@ -146,7 +147,8 @@ class ApiClient {
     return response.json();
   }
 
-  // AI generation
+  // === PENDING: AI generation ===
+  // TODO: Implement AI response generation
   async generateResponse(prompt: string, context: SearchResult[], agentType: "document-search" | "document-creator"): Promise<{ response: string }> {
     const response = await fetch(`${this.baseUrl}/generate`, {
       method: "POST",
@@ -163,6 +165,8 @@ class ApiClient {
     return response.json();
   }
 
+  // === PENDING: AI document saving ===
+  // TODO: Implement document saving with vector embeddings
   async saveDocument(title: string, content: string, type: "politics" | "operations" | "manual"): Promise<{ document: Document; chunksCreated: number; message: string }> {
     const response = await fetch(`${this.baseUrl}/documents/save`, {
       method: "POST",
