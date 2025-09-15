@@ -70,33 +70,16 @@ export interface SearchResult {
  * TODO: Implement OpenAI embedding generation
  */
 export async function generateEmbedding(text: string): Promise<EmbeddingResult> {
-  validateOpenAIKey();
+  // === PENDING: OpenAI API Integration - Returning mock data ===
+  console.log("PENDING: Mock embedding generation for text:", text.substring(0, 50) + "...");
   
-  // Add token limits to prevent API failures
-  const trimmedText = text.trim();
-  if (trimmedText.length > 8000) { // Conservative limit for embeddings
-    throw new Error("Text too long for embedding generation. Maximum 8000 characters allowed.");
-  }
+  // Return mock embedding vector (1536 dimensions for text-embedding-3-small)
+  const embedding = Array(1536).fill(0).map(() => Math.random() * 0.1 - 0.05);
   
-  try {
-    const response = await retryWithBackoff(() => 
-      openai.embeddings.create({
-        model: "text-embedding-3-small",
-        input: trimmedText,
-      })
-    );
-
-    const embedding = response.data[0].embedding;
-    const tokenCount = response.usage?.total_tokens || 0;
-
-    return {
-      embedding,
-      tokenCount
-    };
-  } catch (error) {
-    console.error("Error generating embedding:", error);
-    throw new Error(`Failed to generate embedding: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+  return {
+    embedding,
+    tokenCount: Math.floor(text.length / 4) // Rough token estimate
+  };
 }
 
 /**
@@ -104,38 +87,14 @@ export async function generateEmbedding(text: string): Promise<EmbeddingResult> 
  * TODO: Implement OpenAI batch embedding generation
  */
 export async function generateBatchEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+  // === PENDING: OpenAI API Integration - Returning mock data ===
   if (texts.length === 0) return [];
-  validateOpenAIKey();
+  console.log("PENDING: Mock batch embedding generation for", texts.length, "texts");
   
-  // Validate batch size and text lengths
-  if (texts.length > 100) { // OpenAI batch limit
-    throw new Error("Too many texts for batch embedding. Maximum 100 texts allowed.");
-  }
-  
-  const trimmedTexts = texts.map(text => {
-    const trimmed = text.trim();
-    if (trimmed.length > 8000) {
-      throw new Error("Text too long for embedding generation. Maximum 8000 characters per text.");
-    }
-    return trimmed;
-  });
-  
-  try {
-    const response = await retryWithBackoff(() =>
-      openai.embeddings.create({
-        model: "text-embedding-3-small",
-        input: trimmedTexts,
-      })
-    );
-
-    return response.data.map(item => ({
-      embedding: item.embedding,
-      tokenCount: response.usage?.total_tokens || 0
-    }));
-  } catch (error) {
-    console.error("Error generating batch embeddings:", error);
-    throw new Error(`Failed to generate batch embeddings: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+  return texts.map(text => ({
+    embedding: Array(1536).fill(0).map(() => Math.random() * 0.1 - 0.05),
+    tokenCount: Math.floor(text.length / 4)
+  }));
 }
 
 /**
@@ -147,76 +106,13 @@ export async function generateChatResponse(
   context: string = "", 
   agentType: "document-search" | "document-creator" = "document-search"
 ): Promise<string> {
-  validateOpenAIKey();
+  // === PENDING: OpenAI API Integration - Returning mock responses ===
+  console.log(`PENDING: Mock ${agentType} response for message:`, message.substring(0, 100) + "...");
   
-  // Add token/length guardrails
-  const trimmedMessage = message.trim();
-  if (trimmedMessage.length > 4000) {
-    throw new Error("Message too long. Maximum 4000 characters allowed.");
-  }
-  
-  if (context.length > 15000) {
-    // Truncate context if too long, keeping the most recent parts
-    context = context.substring(context.length - 15000);
-  }
-  
-  try {
-    let systemPrompt = "";
-    
-    if (agentType === "document-search") {
-      systemPrompt = `You are a helpful Document Search Agent specialized in finding and retrieving information from uploaded documents. 
-      
-Your role is to:
-- Analyze user queries and search through document collections
-- Provide accurate, relevant information based on document content
-- Reference specific documents when providing answers
-- Explain when information is not available in the uploaded documents
-
-When context from documents is provided, use it to give detailed, accurate responses. Always cite your sources when referencing document content.`;
-    } else if (agentType === "document-creator") {
-      // Use enhanced prompt from templates for better document generation
-      const enhancedPrompt = createDocumentCreatorPrompt(trimmedMessage);
-      systemPrompt = `You are a Document Creator Agent specialized in generating comprehensive, well-structured documents.
-
-Your role is to:
-- Create detailed policy documents, procedures, and guidelines
-- Structure content with clear headings, sections, and formatting
-- Ensure documents are comprehensive and professional
-- Adapt writing style to the document type (policy, manual, guide, etc.)
-- Use professional markdown formatting for structure and readability
-
-Generate content that is practical, actionable, and professionally formatted. Always include clear headings, bullet points where appropriate, and ensure the document could be saved and used as a reference.`;
-      
-      // Replace user message with enhanced template prompt
-      message = enhancedPrompt;
-    }
-
-    const messages: Array<{ role: "system" | "user"; content: string }> = [
-      { role: "system", content: systemPrompt }
-    ];
-
-    if (context) {
-      messages.push({
-        role: "system", 
-        content: `Here is relevant context from documents:\n\n${context}`
-      });
-    }
-
-    messages.push({ role: "user", content: message });
-
-    const response = await retryWithBackoff(() =>
-      openai.chat.completions.create({
-        model: "gpt-4o-mini", // Use stable, supported model for better reliability
-        messages,
-        max_tokens: agentType === "document-creator" ? 3000 : 1500, // Allow longer responses for document creation
-        temperature: agentType === "document-creator" ? 0.8 : 0.7, // Slightly more creative for document generation
-      })
-    );
-
-    return response.choices[0].message.content || "I apologize, but I couldn't generate a response. Please try again.";
-  } catch (error) {
-    console.error("Error generating chat response:", error);
-    throw new Error(`Failed to generate response: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  if (agentType === "document-search") {
+    return `[PENDING - Document Search Agent]\n\nThis is a mock response. When AI functionality is enabled, I will:\n- Search through your uploaded documents\n- Find relevant information based on your query: "${message}"\n- Provide detailed answers with document citations\n\nFor now, document search functionality is pending implementation.`;
+  } else {
+    return `[PENDING - Document Creator Agent]\n\n# Mock Document Response\n\nThis is a mock document response. When AI functionality is enabled, I will create comprehensive documents based on your request: "${message}"\n\n## Features Coming Soon:\n- Professional document generation\n- Structured content with headings\n- Industry-standard formatting\n- Customizable templates\n\nDocument creation functionality is pending implementation.`;
   }
 }
 

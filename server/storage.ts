@@ -23,15 +23,27 @@ import * as bcrypt from "bcryptjs";
 // TODO: Implement vector database functionality
 import { generateEmbedding, generateBatchEmbeddings } from "./openai";
 
-// Environment variable validation
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL environment variable is required");
-}
+// === PENDING: Database Operations ===
+// Using in-memory storage for now to avoid DATABASE_URL requirement
+// TODO: Enable database connection when ready
 
-// Initialize database connection
-const client = neon(databaseUrl);
-const db = drizzle(client);
+// Conditional database initialization
+let db: any = null;
+let useDatabaseStorage = false;
+
+try {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (databaseUrl) {
+    const client = neon(databaseUrl);
+    db = drizzle(client);
+    useDatabaseStorage = true;
+    console.log("Database connection available, using DatabaseStorage");
+  } else {
+    console.log("No DATABASE_URL provided, will use MemStorage as fallback");
+  }
+} catch (error) {
+  console.log("Database connection failed, will use MemStorage as fallback:", error);
+}
 
 // Utility functions for password handling
 export const hashPassword = async (password: string): Promise<string> => {
@@ -289,4 +301,11 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-export const storage = new DatabaseStorage();
+// === CONDITIONAL STORAGE SELECTION ===
+// Import memory storage as fallback
+import { MemStorage } from "./memStorage";
+
+// Use appropriate storage based on availability
+export const storage = useDatabaseStorage && db ? new DatabaseStorage() : new MemStorage();
+
+console.log("Using storage:", storage.constructor.name);
