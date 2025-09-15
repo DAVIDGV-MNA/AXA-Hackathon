@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuChat - RAG Document Assistant</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="logo">DocuChat</h1>
+            <p class="subtitle">RAG Document Assistant</p>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Upload Section -->
+            <section class="upload-section">
+                <h2>Upload Documents</h2>
+                <div class="upload-area" id="uploadArea">
+                    <input type="file" id="fileInput" accept=".txt" multiple style="display: none;">
+                    <div class="upload-content">
+                        <div class="upload-icon">📄</div>
+                        <p>Drag and drop .txt files here or <button type="button" class="upload-btn" onclick="document.getElementById('fileInput').click()">browse files</button></p>
+                    </div>
+                </div>
+                <div id="uploadStatus" class="upload-status"></div>
+            </section>
+
+            <!-- Documents List -->
+            <section class="documents-section">
+                <h2>Uploaded Documents (<span id="docCount">0</span>)</h2>
+                <div id="documentsList" class="documents-list">
+                    <p class="empty-state">No documents uploaded yet.</p>
+                </div>
+            </section>
+
+            <!-- Chat Interface -->
+            <section class="chat-section">
+                <h2>Chat with Your Documents</h2>
+                
+                <!-- Agent Selection -->
+                <div class="agent-selection">
+                    <label>
+                        <input type="radio" name="agentType" value="document-search" checked>
+                        🔍 Document Search Agent
+                    </label>
+                    <label>
+                        <input type="radio" name="agentType" value="document-creator">
+                        📝 Document Creator Agent
+                    </label>
+                </div>
+
+                <!-- Chat Messages -->
+                <div id="chatMessages" class="chat-messages">
+                    <div class="message assistant-message">
+                        <strong>DocuChat Assistant:</strong> Hello! Upload some documents and ask me questions about them, or ask me to create new documents for you.
+                    </div>
+                </div>
+
+                <!-- Chat Input -->
+                <div class="chat-input-container">
+                    <div class="chat-input">
+                        <input type="text" id="messageInput" placeholder="Ask about your documents or request document creation..." maxlength="500">
+                        <button id="sendBtn" onclick="sendMessage()">Send</button>
+                    </div>
+                    <div id="chatStatus" class="chat-status"></div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Static HTML + FastAPI • No build tools required</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
