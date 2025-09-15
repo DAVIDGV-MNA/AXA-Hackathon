@@ -17,15 +17,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve static files (HTML, CSS, JS)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 # In-memory storage for this simple version
 documents: List[Dict[str, Any]] = []
 chat_history: List[Dict[str, Any]] = []
 
-@app.get("/")
-async def root():
+@app.get("/api/health")
+async def health():
     return {"message": "DocuChat HTML API", "docs": "/docs"}
 
 @app.post("/api/upload")
@@ -127,7 +124,10 @@ async def get_chat_history():
         "history": chat_history
     }
 
+# Serve static files (HTML, CSS, JS) at root
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
 if __name__ == "__main__":
     import uvicorn
     import os
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 5000)), log_level="debug")
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 5000)), log_level="info")
