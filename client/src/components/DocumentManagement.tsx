@@ -1,8 +1,13 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { DocumentCard, Document } from "./DocumentCard"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { apiClient } from "@/lib/api"
+import { useToast } from "@/hooks/use-toast"
 import { 
   Select,
   SelectContent,
@@ -16,6 +21,7 @@ export interface DocumentManagementProps {
   onUploadClick?: () => void
 }
 
+// === QUALITY OF LIFE IMPROVEMENT: Using mock documents with future API integration planned ===
 const mockDocuments: Document[] = [
   {
     id: "doc-1",
@@ -71,7 +77,40 @@ export function DocumentManagement({ onUploadClick }: DocumentManagementProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [sortBy, setSortBy] = useState<string>("date")
-  const [documents] = useState<Document[]>(mockDocuments) // todo: remove mock functionality
+  const { toast } = useToast()
+  const queryClient = useQueryClient()
+
+  // === QUALITY OF LIFE IMPROVEMENT: API integration prepared (using mock data for now) ===
+  // TODO: Enable real API when backend is ready
+  // const { data: apiDocuments = [], isLoading, error } = useQuery({
+  //   queryKey: ['/api/documents'],
+  //   queryFn: () => apiClient.getDocuments(),
+  //   staleTime: 30000,
+  //   retry: 2
+  // })
+  
+  const documents = mockDocuments
+  const isLoading = false
+  const error = null
+
+  // === QUALITY OF LIFE IMPROVEMENT: Document deletion with confirmation ===
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiClient.deleteDocument(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] })
+      toast({
+        title: "Document Deleted",
+        description: "The document has been successfully deleted."
+      })
+    },
+    onError: () => {
+      toast({
+        title: "Deletion Failed", 
+        description: "Failed to delete document. Please try again.",
+        variant: "destructive"
+      })
+    }
+  })
 
   // Filter and sort documents
   const filteredDocuments = documents
@@ -105,9 +144,11 @@ export function DocumentManagement({ onUploadClick }: DocumentManagementProps) {
     // todo: remove mock functionality - implement real download
   }
 
+  // === QUALITY OF LIFE IMPROVEMENT: Real deletion with confirmation ===
   const handleDelete = (document: Document) => {
-    console.log("Delete document:", document.title)
-    // todo: remove mock functionality - implement real deletion with confirmation
+    if (window.confirm(`Are you sure you want to delete "${document.title}"? This action cannot be undone.`)) {
+      deleteMutation.mutate(document.id)
+    }
   }
 
   const getTypeCount = (type: string) => {
