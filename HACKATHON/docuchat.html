@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuChat - SecureGPT Prototype</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            height: 100vh;
+            display: flex;
+        }
+
+        .sidebar {
+            width: 280px;
+            background: #f1f3f4;
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .header {
+            padding: 16px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: #0066cc;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .brand h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .brand p {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .connection-status {
+            padding: 12px;
+            margin: 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .status-connected {
+            background: #e8f5e8;
+            color: #2e7d32;
+            border: 1px solid #4caf50;
+        }
+
+        .status-disconnected {
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #f44336;
+        }
+
+        .status-connecting {
+            background: #fff3e0;
+            color: #f57c00;
+            border: 1px solid #ff9800;
+        }
+
+        .nav-section {
+            padding: 16px;
+        }
+
+        .nav-title {
+            font-size: 12px;
+            font-weight: 500;
+            color: #666;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 4px;
+        }
+
+        .nav-item:hover {
+            background: #e8eaed;
+        }
+
+        .nav-item.active {
+            background: #e8eaed;
+        }
+
+        .model-selector {
+            padding: 16px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .model-select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .usage-info {
+            padding: 16px;
+            border-top: 1px solid #e0e0e0;
+            font-size: 11px;
+            color: #666;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .chat-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid #e0e0e0;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .env-badge {
+            background: #0066cc;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            background: white;
+        }
+
+        .message {
+            display: flex;
+            gap: 12px;
+            max-width: 85%;
+        }
+
+        .message.user {
+            margin-left: auto;
+            flex-direction: row-reverse;
+        }
+
+        .message.assistant {
+            margin-right: auto;
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 14px;
+        }
+
+        .message.user .message-avatar {
+            background: #0066cc;
+            color: white;
+        }
+
+        .message.assistant .message-avatar {
+            background: #f1f3f4;
+            color: #666;
+        }
+
+        .message-content {
+            background: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 12px 16px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .message.user .message-content {
+            background: #0066cc;
+            color: white;
+            border-color: #0066cc;
+        }
+
+        .message-footer {
+            font-size: 11px;
+            color: #999;
+            margin-top: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .typing-indicator {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            color: #666;
+            font-size: 13px;
+            padding: 12px 20px;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 2px;
+        }
+
+        .typing-dots span {
+            width: 4px;
+            height: 4px;
+            background: #666;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing {
+            0%, 60%, 100% { opacity: 0.3; }
+            30% { opacity: 1; }
+        }
+
+        .input-area {
+            padding: 16px 24px;
+            border-top: 1px solid #e0e0e0;
+            background: white;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            resize: none;
+            min-height: 44px;
+            max-height: 120px;
+            font-family: inherit;
+        }
+
+        .chat-input:disabled {
+            background: #f5f5f5;
+            cursor: not-allowed;
+        }
+
+        .send-btn {
+            width: 44px;
+            height: 44px;
+            border: none;
+            background: #0066cc;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+        }
+
+        .send-btn:hover:not(:disabled) {
+            background: #0052a3;
+        }
+
+        .send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .welcome-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            color: #666;
+        }
+
+        .welcome-screen h3 {
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .error-display {
+            background: #ffebee;
+            color: #c62828;
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin: 12px 20px;
+            font-size: 13px;
+            border-left: 3px solid #f44336;
+        }
+
+        .config-warning {
+            background: #fff3e0;
+            color: #f57c00;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px;
+            text-align: center;
+        }
+
+        .test-btn, .refresh-btn {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            margin-top: 8px;
+        }
+
+        .test-btn:hover, .refresh-btn:hover {
+            background: #0052a3;
+        }
+    </style>
+</head>
+<body>
+    <!-- Load configuration first -->
+    <script src="config.js"></script>
+    
+    <div class="sidebar">
+        <div class="header">
+            <div class="logo">
+                <div class="logo-icon">🔐</div>
+                <div class="brand">
+                    <h1>SecureGPT</h1>
+                    <p>AXA Secure AI Assistant</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="connection-status" id="connection-status">
+            <div>⚡ Initializing...</div>
+            <button class="test-btn" onclick="testConnection()">Test Connection</button>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-title">Environment</div>
+            <div class="nav-item active">
+                <span>📡</span>
+                <span id="current-env">PREPROD</span>
+            </div>
+        </div>
+
+        <div class="model-selector">
+            <div class="nav-title">Model</div>
+            <select class="model-select" id="model-select">
+                <option value="gpt-4o-mini-2024-07-18">GPT-4o Mini</option>
+                <option value="gpt-4o-2024-05-13">GPT-4o</option>
+                <option value="gpt-4-turbo-2024-04-09">GPT-4 Turbo</option>
+            </select>
+        </div>
+
+        <div class="usage-info" id="usage-info">
+            <div class="nav-title">Usage</div>
+            <div>Tokens used: <span id="tokens-used">0</span></div>
+            <div>Quota: <span id="quota-limit">50,000</span>/30min</div>
+            <button class="refresh-btn" onclick="refreshUsage()">Refresh</button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="chat-header">
+            <div class="header-info">
+                <div class="env-badge" id="env-badge">PREPROD</div>
+                <div>
+                    <h2>SecureGPT Chat</h2>
+                    <p id="model-info">Model: gpt-4o-mini-2024-07-18</p>
+                </div>
+            </div>
+            <div>
+                <button class="test-btn" onclick="clearChat()">Clear Chat</button>
+            </div>
+        </div>
+
+        <div class="chat-messages" id="chat-messages">
+            <div class="welcome-screen" id="welcome-screen">
+                <h3>🔐 SecureGPT Assistant</h3>
+                <p>Secure AI conversations within AXA infrastructure</p>
+                <p style="font-size: 12px; margin-top: 8px;">
+                    Environment: <strong id="env-display">PREPROD</strong><br>
+                    Status: <span id="status-display">Checking connection...</span>
+                </p>
+            </div>
+        </div>
+
+        <div class="typing-indicator" id="typing-indicator">
+            <span>SecureGPT is thinking</span>
+            <div class="typing-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-container">
+                <textarea 
+                    class="chat-input" 
+                    id="message-input" 
+                    placeholder="Type your message to SecureGPT..."
+                    rows="1"
+                    disabled
+                ></textarea>
+                <button class="send-btn" id="send-btn" onclick="sendMessage()" disabled>
+                    ➤
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // SecureGPT API Client
+        class SecureGPTClient {
+            constructor() {
+                this.config = window.AppConfig.SECUREGPT;
+                this.currentEndpoint = this.config.ENDPOINTS[this.config.ENVIRONMENT];
+                this.accessToken = null;
+                this.tokenExpiry = null;
+                this.conversationHistory = [];
+                this.totalTokens = 0;
+            }
+
+            async authenticate() {
+                try {
+                    updateConnectionStatus('connecting', 'Authenticating...');
+                    
+                    const response = await fetch(`${this.currentEndpoint.ONE_ACCOUNT}/as/token.oauth2`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams({
+                            grant_type: 'client_credentials',
+                            client_id: this.config.CLIENT_ID,
+                            client_secret: this.config.CLIENT_SECRET,
+                            scope: this.config.SCOPE
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Authentication failed: ${response.status} ${response.statusText}`);
+                    }
+
+                    const data = await response.json();
+                    this.accessToken = data.access_token;
+                    this.tokenExpiry = Date.now() + (data.expires_in * 1000);
+                    
+                    console.log('✅ SecureGPT authentication successful');
+                    return true;
+                } catch (error) {
+                    console.error('❌ SecureGPT authentication failed:', error);
+                    throw error;
+                }
+            }
+
+            async ensureAuthenticated() {
+                if (!this.accessToken || Date.now() >= this.tokenExpiry - 60000) {
+                    await this.authenticate();
+                }
+            }
+
+            async testHealthcheck() {
+                await this.ensureAuthenticated();
+
+                const response = await fetch(`${this.currentEndpoint.API_URL}/healthcheck`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${this.accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Healthcheck failed: ${response.status}`);
+                }
+
+                return await response.json();
+            }
+
+            async sendMessage(message, model = this.config.DEFAULT_MODEL) {
+                await this.ensureAuthenticated();
+
+                // Add user message to conversation
+                this.conversationHistory.push({
+                    role: 'user',
+                    content: message
+                });
+
+                // Keep conversation history manageable
+                if (this.conversationHistory.length > window.AppConfig.APP.CONVERSATION_HISTORY_LIMIT) {
+                    this.conversationHistory = this.conversationHistory.slice(-window.AppConfig.APP.CONVERSATION_HISTORY_LIMIT);
+                }
+
+                const requestBody = {
+                    messages: this.conversationHistory,
+                    max_tokens: this.config.MAX_TOKENS,
+                    temperature: this.config.TEMPERATURE
+                };
+
+                const response = await fetch(
+                    `${this.currentEndpoint.API_URL}/providers/openai/deployments/${model}/chat/completions?api-version=${this.config.API_VERSION}`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${this.accessToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(requestBody)
+                    }
+                );
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`SecureGPT API Error: ${response.status} - ${errorText}`);
+                }
+
+                const data = await response.json();
+                const assistantMessage = data.choices[0].message.content;
+                
+                // Add assistant response to conversation
+                this.conversationHistory.push({
+                    role: 'assistant',
+                    content: assistantMessage
+                });
+
+                // Track token usage
+                if (data.usage) {
+                    this.totalTokens += data.usage.total_tokens;
+                    updateTokenUsage(data.usage.total_tokens);
+                }
+
+                return {
+                    message: assistantMessage,
+                    usage: data.usage
+                };
+            }
+
+            async getUsage() {
+                await this.ensureAuthenticated();
+
+                const response = await fetch(`${this.currentEndpoint.API_URL}/consumption`, {
+                    headers: {
+                        'Authorization': `Bearer ${this.accessToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    return await response.json();
+                }
+                return null;
+            }
+        }
+
+        // Initialize client
+        let gptClient;
+
+        // UI Functions
+        function updateConnectionStatus(status, message) {
+            const statusEl = document.getElementById('connection-status');
+            const statusDisplay = document.getElementById('status-display');
+            
+            statusEl.className = `connection-status status-${status}`;
+            
+            let icon = '⚡';
+            if (status === 'connected') icon = '✅';
+            else if (status === 'disconnected') icon = '❌';
+            else if (status === 'connecting') icon = '🔄';
+            
+            statusEl.innerHTML = `<div>${icon} ${message}</div><button class="test-btn" onclick="testConnection()">Test Connection</button>`;
+            
+            if (statusDisplay) {
+                statusDisplay.textContent = message;
+            }
+
+            // Enable/disable input based on connection
+            const messageInput = document.getElementById('message-input');
+            const sendBtn = document.getElementById('send-btn');
+            
+            if (status === 'connected') {
+                messageInput.disabled = false;
+                sendBtn.disabled = false;
+                messageInput.placeholder = 'Type your message to SecureGPT...';
+            } else {
+                messageInput.disabled = true;
+                sendBtn.disabled = true;
+                messageInput.placeholder = 'Connect to SecureGPT first...';
+            }
+        }
+
+        function addMessage(role, content, usage = null) {
+            const messagesContainer = document.getElementById('chat-messages');
+            const welcomeScreen = document.getElementById('welcome-screen');
+            
+            if (welcomeScreen) {
+                welcomeScreen.style.display = 'none';
+            }
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            let usageText = '';
+            if (usage) {
+                usageText = `<span>Tokens: ${usage.prompt_tokens}+${usage.completion_tokens}=${usage.total_tokens}</span>`;
+            }
+            
+            messageDiv.innerHTML = `
+                <div class="message-avatar">
+                    ${role === 'user' ? '👤' : '🤖'}
+                </div>
+                <div class="message-content">
+                    ${content.replace(/\n/g, '<br>')}
+                    <div class="message-footer">
+                        <span>${timestamp}</span>
+                        ${usageText}
+                    </div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function showTypingIndicator() {
+            document.getElementById('typing-indicator').style.display = 'flex';
+            const messagesContainer = document.getElementById('chat-messages');
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            document.getElementById('typing-indicator').style.display = 'none';
+        }
+
+        function updateTokenUsage(newTokens) {
+            const tokensUsedEl = document.getElementById('tokens-used');
+            const currentUsage = parseInt(tokensUsedEl.textContent) || 0;
+            tokensUsedEl.textContent = currentUsage + newTokens;
+        }
+
+        // Main Functions
+        async function testConnection() {
+            try {
+                updateConnectionStatus('connecting', 'Testing connection...');
+                
+                const health = await gptClient.testHealthcheck();
+                
+                if (health.status === 'ok') {
+                    updateConnectionStatus('connected', 'Connected to SecureGPT');
+                } else {
+                    updateConnectionStatus('disconnected', 'Health check failed');
+                }
+            } catch (error) {
+                console.error('Connection test failed:', error);
+                updateConnectionStatus('disconnected', `Connection failed: ${error.message}`);
+                
+                // Show error in UI
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-display';
+                errorDiv.innerHTML = `
+                    <strong>Connection Error:</strong> ${error.message}<br>
+                    <small>Check your CLIENT_SECRET in config.js and network connectivity.</small>
+                `;
+                document.querySelector('.main-content').prepend(errorDiv);
+                
+                setTimeout(() => errorDiv.remove(), 10000);
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('message-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+
+            const selectedModel = document.getElementById('model-select').value;
+
+            // Add user message to UI
+            addMessage('user', message);
+            
+            // Clear input
+            input.value = '';
+            input.style.height = 'auto';
+            
+            // Show typing indicator
+            showTypingIndicator();
+            
+            try {
+                const response = await gptClient.sendMessage(message, selectedModel);
+                
+                hideTypingIndicator();
+                addMessage('assistant', response.message, response.usage);
+                
+            } catch (error) {
+                hideTypingIndicator();
+                addMessage('assistant', `❌ Error: ${error.message}`);
+                console.error('Chat error:', error);
+            }
+        }
+
+        async function refreshUsage() {
+            try {
+                const usage = await gptClient.getUsage();
+                if (usage && usage.length > 0) {
+                    const totalInput = usage.reduce((sum, item) => sum + item.usage.tokens.input, 0);
+                    const totalOutput = usage.reduce((sum, item) => sum + item.usage.tokens.output, 0);
+                    document.getElementById('tokens-used').textContent = totalInput + totalOutput;
+                }
+            } catch (error) {
+                console.log('Usage refresh failed:', error);
+            }
+        }
+
+        function clearChat() {
+            document.getElementById('chat-messages').innerHTML = `
+                <div class="welcome-screen" id="welcome-screen">
+                    <h3>🔐 SecureGPT Assistant</h3>
+                    <p>Secure AI conversations within AXA infrastructure</p>
+                    <p style="font-size: 12px; margin-top: 8px;">
+                        Environment: <strong>${window.AppConfig.SECUREGPT.ENVIRONMENT}</strong><br>
+                        Status: <span id="status-display">Ready</span>
+                    </p>
+                </div>
+            `;
+            gptClient.conversationHistory = [];
+        }
+
+        // Event Listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if config is loaded
+            if (!window.AppConfig) {
+                document.body.innerHTML = `
+                    <div class="config-warning">
+                        <h3>⚠️ Configuration Missing</h3>
+                        <p>Please make sure config.js is loaded and contains your SecureGPT credentials.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Initialize client
+            gptClient = new SecureGPTClient();
+            
+            // Update UI with current environment
+            const env = window.AppConfig.SECUREGPT.ENVIRONMENT;
+            document.getElementById('current-env').textContent = env;
+            document.getElementById('env-badge').textContent = env;
+            document.getElementById('env-display').textContent = env;
+
+            // Message input handling
+            const messageInput = document.getElementById('message-input');
+            messageInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            // Auto-resize textarea
+            messageInput.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+            });
+
+            // Model selector
+            const modelSelect = document.getElementById('model-select');
+            modelSelect.addEventListener('change', function() {
+                document.getElementById('model-info').textContent = `Model: ${this.value}`;
+            });
+
+            // Auto-test connection on load
+            setTimeout(testConnection, 1000);
+        });
+    </script>
+</body>
+</html>
