@@ -1,0 +1,78 @@
+/* Shared app styles: variables, tokens, and base layout used by multiple pages */
+:root{
+  --bg: #f8f9fa;
+  --panel: #ffffff;
+  --sidebar: #f1f3f4;
+  --border: #e0e0e0;
+  --text: #111827;
+  --muted: #6b7280;
+  --icon: #111827;
+  --tile: #eef1f4;
+  --accent: #333333;
+  --logo-foreground: #ffffff;
+  --hover: rgba(0,0,0,0.04);
+}
+[data-theme="dark"]{
+  --bg: #0b1220;
+  --panel: #0f172a;
+  --sidebar: #0b1220;
+  --border: #1f2a37;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --icon: #e5e7eb;
+  --tile: #111827;
+  --accent: #9fb0c8;
+  --logo-foreground: #ffffff;
+  --hover: rgba(255,255,255,0.04);
+}
+/* Reset + app layout */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);display:flex}
+/* Sidebar */
+.sidebar{width:280px;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh}
+.header{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.logo{width:32px;height:32px;background:var(--accent);color:var(--logo-foreground);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700}
+.brand h1{font-size:18px;margin:0}
+.brand p{font-size:12px;margin:0;color:var(--muted)}
+.hamburger{margin-left:auto;padding:6px;border-radius:8px;background:var(--tile);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.hamburger:hover{background:var(--hover)}
+.nav-section{padding:16px}
+.nav-title{font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase}
+.nav-item{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:6px;cursor:pointer;color:var(--text);margin-bottom:4px}
+.nav-item:hover{background:var(--hover)}
+.nav-item.active{background:var(--hover)}
+/* Conversations/left rail */
+.conversations-section{flex:1;padding:16px;display:flex;flex-direction:column}
+.search-box{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text)}
+.search-box::placeholder{color:var(--muted)}
+.no-conversations{text-align:center;color:var(--muted);margin-top:20px}
+/* Main content */
+.main-content{flex:1;display:flex;flex-direction:column;height:100vh}
+.main-header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center}
+.document-info{display:flex;align-items:center;gap:12px}
+.doc-icon{width:24px;height:24px;border-radius:4px;background:var(--tile);display:flex;align-items:center;justify-content:center;color:var(--icon)}
+.doc-details h2{font-size:16px;margin:0}
+.doc-details p{margin:0;color:var(--muted)}
+.settings-btn{background:transparent;border:none;padding:6px;border-radius:8px;cursor:pointer}
+.settings-btn:hover{background:var(--hover)}
+/* Chat area basics */
+.chat-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px}
+.chat-input{flex:1;padding:12px 16px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text)}
+/* Icon base */
+.icon{width:22px;height:22px;color:var(--icon)}
+/* Mode chips */
+.mode-btn{padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer}
+.mode-btn.active{background:var(--accent);color:var(--panel);border-color:var(--accent)}
+/* Upload page specifics */
+.dropzone{border:2px dashed var(--border);border-radius:10px;padding:28px;text-align:center;background:var(--panel);cursor:pointer}
+.dropzone.dragover{background:rgba(0,0,0,0.02)}
+.dropzone .muted{color:var(--muted);margin-top:8px}
+.queue{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.queue-item{padding:10px;border-radius:8px;background:var(--panel);display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border)}
+.badge{padding:4px 8px;border-radius:999px;background:var(--tile);font-size:12px;color:var(--muted)}
+.progress{height:8px;background:var(--tile);border-radius:6px;overflow:hidden}
+.progress > i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#7aa0c7);width:0%}
+.toast{position:fixed;right:16px;bottom:16px;background:var(--panel);padding:8px 12px;border-radius:6px;border:1px solid var(--border)}
+/* small responsive tweaks */
+@media (max-width:800px){.sidebar{width:72px}.brand{display:none}.conversations-section{display:none}}

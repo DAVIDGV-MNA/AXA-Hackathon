@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuChat - AI Document Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            height: 100vh;
+            display: flex;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: #f1f3f4;
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .header {
+            padding: 16px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo {
+            width: 32px;
+            height: 32px;
+            background: #333;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .brand {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .brand h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .brand p {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .hamburger {
+            margin-left: auto;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 8px;
+            background: var(--tile);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .hamburger:hover {
+            background: var(--hover);
+        }
+
+        .nav-section {
+            padding: 16px;
+        }
+
+        .nav-title {
+            font-size: 12px;
+            font-weight: 500;
+            color: #666;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 4px;
+            transition: background-color 0.2s;
+        }
+
+        .nav-item:hover, .nav-item.active {
+            background: var(--hover);
+        }
+
+        .conversations-section {
+            flex: 1;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .conversations-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .add-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 8px;
+        }
+
+        .add-btn:hover {
+            background: var(--hover);
+        }
+
+        .search-box {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+            margin-bottom: 16px;
+        }
+
+        .search-box::placeholder {
+            color: #999;
+        }
+
+        .no-conversations {
+            text-align: center;
+            color: #666;
+            font-size: 13px;
+            margin-top: 20px;
+        }
+
+        .bottom-nav {
+            border-top: 1px solid #e0e0e0;
+            padding: 16px;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .main-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid #e0e0e0;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: between;
+        }
+
+        .main-header .settings-btn {
+            margin-left: auto;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 8px;
+        }
+
+        .main-header .settings-btn:hover {
+            background: var(--hover);
+        }
+
+        .document-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+     /* Header document icon size */
+        .doc-icon .icon {
+        width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tile);
+  color: var(--icon);
+}
+
+        .doc-details h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 2px;
+        }
+
+        .doc-details p {
+            font-size: 13px;
+            color: #666;
+        }
+
+        .chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: white;
+            padding: 40px 40px 8px;
+        }
+
+        .agent-selector {
+            text-align: center;
+            max-width: 400px;
+        }
+
+        /* “Select an Agent” robot icon size */
+        .robot-icon .icon {
+        width: 28px;
+        height: 28px;
+        }
+
+        .agent-selector h3 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .agent-selector p {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .input-area {
+            padding: 16px 24px;
+            border-top: 1px solid #e0e0e0;
+            background: white;
+        }
+
+        .mode-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            align-items: center;
+        }
+
+        .mode-selector span {
+            font-size: 13px;
+            color: #666;
+            margin-right: 8px;
+        }
+
+        .mode-btn {
+            padding: 6px 12px;
+            border: 1px solid #e0e0e0;
+            background: white;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .mode-btn.active {
+            background: #333;
+            color: white;
+            border-color: #333;
+        }
+
+        .mode-btn:hover:not(.active) {
+            background: #f8f9fa;
+        }
+
+        .mode-description {
+            font-size: 12px;
+            color: #666;
+            margin-left: auto;
+        }
+
+        .input-container {
+            position: relative;
+            display: flex;
+            gap: 8px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            resize: none;
+            min-height: 44px;
+            max-height: 120px;
+        }
+
+        .chat-input::placeholder {
+            color: #999;
+        }
+
+        .input-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .action-btn {
+            width: 44px;
+            height: 44px;
+            border: none;
+            background: #666;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+        }
+
+        .action-btn:hover {
+            background: #555;
+        }
+
+        .action-btn.send {
+            background: #666;
+        }
+
+        .action-btn.attach {
+            background: none;
+            color: var(--text);
+            border: 1px solid #e0e0e0;
+        }
+
+        .action-btn.attach:hover {
+            background: var(--hover);
+            color: var(--text);
+        }
+
+        /* Icons using CSS */
+        /* Base size for all Lucide icons */
+        .icon {
+        width: 22px;         /* was 18px */
+        height: 22px;        /* was 18px */
+        vertical-align: -2px;
+        /* Optional: slightly bolder lines */
+        stroke-width: 1.75;
+        color: var(--icon); /* theme-aware icon color */
+        }
+
+        .nav-item .icon { margin-right: 8px; }
+
+        /* Theme variables and overrides (light/dark) */
+        :root {
+  --bg: #f8f9fa;
+  --panel: #ffffff;          /* main cards / panels */
+  --sidebar: #f1f3f4;        /* left rail */
+  --border: #e0e0e0;         /* separators */
+  --text: #111827;           /* primary text */
+  --muted: #6b7280;          /* secondary text */
+  --icon: #111827;           /* lucide stroke via currentColor */
+  --tile: #eef1f4;           /* small tiles behind icons */
+  --chip-bg-active: #333333; /* active “Retrieve” chip */
+  --accent: #333333;        /* brand/accent color used for logo and primary actions */
+  --logo-foreground: #ffffff; /* logo text color */
+  --hover: rgba(0,0,0,0.04); /* subtle hover for light theme */
+}
+
+[data-theme="dark"] {
+  --bg: #0b1220;
+  --panel: #0f172a;
+  --sidebar: #0b1220;
+  --border: #1f2a37;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --icon: #e5e7eb;
+  --tile: #111827;
+  --chip-bg-active: #1f2937;
+  --accent: #9fb0c8;          /* lighter accent in dark mode */
+  --logo-foreground: #ffffff; /* keep logo text readable on accent */
+  --hover: rgba(255,255,255,0.04); /* subtle hover for dark theme */
+}
+        /* Smooth theme transitions */
+        * {
+            transition: background-color .18s ease, color .18s ease, border-color .18s ease;
+        }
+
+        /* Apply variables to main UI elements (keeps most of your existing styles intact)
+           This avoids touching every hard-coded color in the file while enabling theming. */
+        body {
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background: var(--sidebar);
+            border-right: 1px solid var(--border);
+        }
+
+        /* Header */
+        .header { border-bottom: 1px solid var(--border); }
+
+        /* Hamburger button and icon tile */
+        .hamburger {
+            margin-left: auto;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 8px;
+            background: var(--tile);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .hamburger:hover {
+            background: var(--hover);
+        }
+
+        /* small icon buttons (settings, add) hover uses token */
+        .main-header .settings-btn, .add-btn, .card-menu {
+            background: transparent;
+            border: none;
+            padding: 6px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .main-header .settings-btn:hover, .add-btn:hover, .card-menu:hover {
+            background: var(--hover);
+        }
+
+        /* Panels & inputs */
+        .main-header, .chat-area, .input-area, .documents-header, .document-card, .documents-content {
+            background: var(--panel);
+        }
+
+        .search-box,
+        .chat-input {
+            background: var(--panel);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .search-box::placeholder,
+        .chat-input::placeholder { color: var(--muted); }
+
+        .input-area { border-top: 1px solid var(--border); }
+
+        .chat-area { padding: 40px 40px 80px; }
+
+        /* Icon tile styles */
+        .doc-icon {
+          width: 24px; height: 24px;
+          background: var(--tile);
+          color: var(--icon);
+          border-radius: 4px;
+          display: flex; align-items: center; justify-content: center;
+        }
+
+        .robot-icon {
+          width: 56px; height: 56px;
+          border-radius: 12px;
+          background: var(--tile);
+          display: flex; align-items: center; justify-content: center;
+          margin: 0 auto 16px;
+        }
+        .robot-icon .icon { width: 28px; height: 28px; }
+
+        /* Mode chip styles (Retrieve = solid, Create = outline) */
+        .mode-btn {
+          padding: 6px 12px;
+          border: 1px solid var(--border);
+          background: transparent;
+          color: var(--text);
+          border-radius: 8px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: background-color .2s, border-color .2s, color .2s;
+        }
+        .mode-btn:hover { background: rgba(255,255,255,0.04); }
+        .mode-btn.active {
+          background: var(--chip-bg-active);
+          border-color: var(--chip-bg-active);
+          color: #ffffff;
+        }
+
+        /* Attach button border uses token */
+        .action-btn.attach { border: 1px solid var(--border); }
+
+        /* Sidebar item hover/active */
+        .nav-item:hover, .nav-item.active { 
+          background: rgba(255,255,255,0.05);
+        }
+
+        /* Text color fixes */
+        .brand h1, .nav-item, .doc-details h2, .agent-selector h3 { color: var(--text); }
+        .brand p, .nav-title, .doc-details p, .no-conversations,
+        .mode-description, .agent-selector p { color: var(--muted); }
+
+        .logo { background: var(--accent); color: var(--logo-foreground); }
+        .upload-btn { background: var(--accent); color: var(--panel); }
+        .mode-btn.active { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+
+         .action-btn { background: var(--accent); }
+        .action-btn.attach { background: none; color: var(--text); }
+    </style>
+</head>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+  // Render icons when the page loads
+  document.addEventListener('DOMContentLoaded', () => {
+    lucide.createIcons();
+  });
+
+  // (Optional) theme toggle icon swap so it feels alive
+  const themeBtn = document.getElementById('themeToggle');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', () => {
+      const icon = themeBtn.querySelector('svg'); // Lucide replaces <i> with <svg>
+      const isSun = icon && icon.getAttribute('data-icon-name') !== 'moon';
+      themeBtn.innerHTML = isSun
+        ? '<i data-lucide="moon" class="icon"></i>'
+        : '<i data-lucide="sun" class="icon"></i>';
+      lucide.createIcons(); // re-render swapped icon
+    });
+  }
+</script>
+<body>
+    <div class="sidebar">
+        <div class="header">
+            <div class="logo">D</div>
+            <div class="brand">
+                <h1>DocuChat</h1>
+                <p>AI Document Assistant</p>
+            </div>
+            <button class="hamburger">
+            <i data-lucide="menu" class="icon"></i>
+            </button>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-title">Navigation</div>
+            <div class="nav-item active">
+    <i data-lucide="message-square" class="icon"></i>
+  Chat
+</div>
+<div class="nav-item">
+  <i data-lucide="file-text" class="icon"></i>
+  Documents
+</div>
+<div class="nav-item">
+  <i data-lucide="upload" class="icon"></i>
+  Upload
+</div>
+        </div>
+
+        <div class="conversations-section">
+            <div class="conversations-header">
+                <div class="nav-title">Conversations</div>
+                <button class="add-btn">
+                <i data-lucide="plus" class="icon"></i>
+                </button>
+            </div>
+            
+            <input type="text" class="search-box" placeholder="Search conversations...">
+            <div id="conversations-list" aria-label="Conversations list"></div>
+            
+             <div class="no-conversations">
+                 No conversations yet
+             </div>
+        </div>
+
+        <div class="bottom-nav">
+            <div class="nav-item">
+            <i data-lucide="settings" class="icon"></i>
+            Settings
+            </div>
+            <div class="nav-item">
+            <i data-lucide="help-circle" class="icon"></i>
+            Help
+            </div>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="main-header">
+            <div class="document-info">
+                <div class="doc-icon">
+                    <i data-lucide="file-text" class="icon"></i>
+                </div>
+                <div class="doc-details">
+                    <h2><span id="convTitle" contenteditable="true" aria-label="Conversation title">Document Retrieval</span></h2>
+                    <p id="convSubtitle">Ask questions about your documents</p>
+                </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; margin-left:auto;">
+                <button class="settings-btn" id="headerStar" title="Favorite conversation" aria-label="Favorite conversation">
+                    <i data-lucide="star" class="icon"></i>
+                </button>
+                <button class="settings-btn" id="themeToggle" aria-label="Switch theme">
+                    <i data-lucide="sun" class="icon"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="chat-area">
+            <div class="agent-selector" id="agent-selector">
+                <div class="robot-icon">
+                    <i data-lucide="bot" class="icon"></i>
+                </div>
+                <h3>Select an Agent</h3>
+                <p>Choose an AI agent to get started with document assistance.</p>
+            </div>
+
+            <div id="chat-context" style="display:none; width:100%; max-width:760px; margin:0 auto; padding:0 12px;">
+                <!-- Messages will be rendered here -->
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="mode-selector">
+                <span>Mode:</span>
+                <button class="mode-btn active">Retrieve</button>
+                <button class="mode-btn">Create</button>
+                <span class="mode-description">Ask questions about uploaded documents</span>
+            </div>
+            
+            <div class="input-container">
+                <button class="action-btn attach">
+                    <i data-lucide="paperclip" class="icon"></i>
+                </button>
+                <textarea class="chat-input" placeholder="Select an agent to start chatting..." rows="1"></textarea>
+                <button class="action-btn send">
+                    <i data-lucide="send" class="icon"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mode selector functionality
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                const modeDescription = document.querySelector('.mode-description');
+                if (this.textContent === 'Retrieve') {
+                    modeDescription.textContent = 'Ask questions about uploaded documents';
+                } else {
+                    modeDescription.textContent = 'Create new content and documents';
+                }
+            });
+        });
+
+        // Navigation functionality
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', function() {
+                if (this.closest('.nav-section')) {
+                    document.querySelectorAll('.nav-section .nav-item').forEach(i => i.classList.remove('active'));
+                    this.classList.add('active');
+                }
+            });
+        });
+
+        // Auto-resize textarea
+        const textarea = document.querySelector('.chat-input');
+        textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        // Send button functionality
+        document.querySelector('.action-btn.send').addEventListener('click', function() {
+            const input = document.querySelector('.chat-input');
+            if (input.value.trim()) {
+                // Here you would handle sending the message
+                console.log('Sending:', input.value);
+                input.value = '';
+                input.style.height = 'auto';
+            }
+        });
+
+        // Enter key to send (Shift+Enter for new line)
+        textarea.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                document.querySelector('.action-btn.send').click();
+            }
+        });
+
+        // File upload functionality
+        document.querySelector('.action-btn.attach').addEventListener('click', function() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.multiple = true;
+            input.accept = '.pdf,.doc,.docx,.txt';
+            input.click();
+            
+            input.addEventListener('change', function(e) {
+                const files = Array.from(e.target.files);
+                console.log('Files selected:', files.map(f => f.name));
+                // Here you would handle file upload
+            });
+        });
+
+        // Search functionality
+        document.querySelector('.search-box').addEventListener('input', function() {
+            console.log('Searching for:', this.value);
+            // Here you would implement search functionality
+        });
+
+        // New conversation
+        document.querySelector('.add-btn').addEventListener('click', function() {
+            console.log('Starting new conversation');
+            // Here you would create a new conversation
+        });
+    </script>
+<script>
+// Theme toggle and persistence
+(function(){
+    const THEME_KEY = 'docuchat-theme';
+    function setTheme(t){
+        document.documentElement.setAttribute('data-theme', t);
+        localStorage.setItem(THEME_KEY, t);
+        updateThemeIcon(t);
+    }
+    function updateThemeIcon(t){
+        const btn = document.getElementById('themeToggle');
+        if (!btn) return;
+        btn.innerHTML = t === 'dark'
+            ? '<i data-lucide="moon" class="icon"></i>'
+            : '<i data-lucide="sun" class="icon"></i>';
+        lucide.createIcons();
+    }
+    function initTheme(){
+        const saved = localStorage.getItem(THEME_KEY);
+        if (saved) return setTheme(saved);
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        setTheme(prefersDark ? 'dark' : 'light');
+    }
+
+    document.addEventListener('DOMContentLoaded', function(){
+        initTheme();
+        const btn = document.getElementById('themeToggle');
+        if (btn) btn.addEventListener('click', function(){
+            const current = document.documentElement.getAttribute('data-theme');
+            setTheme(current === 'dark' ? 'light' : 'dark');
+        });
+    });
+})();
+</script>
+<script>
+    // OpenAI chat integration (browser-side). Replace the API key with your own.
+    const OPENAI_API_KEY = ""
+
+    (function(){
+        let chatHistory = [];
+        let waiting = false;
+
+        function renderChat() {
+            const ctx = document.getElementById('chat-context');
+            if (!ctx) return;
+            if (chatHistory.length === 0) {
+                ctx.innerHTML = '<div style=""text-align:center;color:var(--muted);padding:40px 0;">No messages yet</div>';
+            } else {
+                ctx.innerHTML = chatHistory.map(m => {
+                    const align = m.role === 'user' ? 'flex-end' : 'flex-start';
+                    const bg = m.role === 'user' ? 'var(--tile)' : 'var(--panel)';
+                    const color = m.role === 'user' ? 'var(--text)' : 'var(--text)';
+                    return `
+                        <div style="display:flex; justify-content:${align}; margin:8px 0;">
+                            <div style="max-width:78%; padding:10px 14px; border-radius:12px; background:${m.role==='user'? 'linear-gradient(180deg,var(--panel),var(--tile))' : 'var(--panel)'}; color:${color}; box-shadow: 0 1px 0 rgba(0,0,0,0.02);">
+                                <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">${m.role==='user' ? 'You' : 'Assistant'}</div>
+                                <div style="white-space:pre-wrap;">${escapeHtml(m.content)}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                if (waiting) {
+                    ctx.innerHTML += '<div style="color:var(--muted); padding:8px 0;">Assistant is typing...</div>';
+                }
+            }
+            ctx.style.display = 'block';
+            ctx.scrollTop = ctx.scrollHeight;
+        }
+
+        function escapeHtml(text){
+            if (!text) return '';
+            return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        async function callOpenAI(messages){
+            // Debug: log that we are about to call OpenAI (do NOT log the API key)
+            console.debug('callOpenAI: messages count =', messages.length);
+            try {
+                const payload = { model: 'gpt-4o-mini', messages };
+                console.debug('callOpenAI: payload=', payload);
+
+                const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${OPENAI_API_KEY}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                console.debug('callOpenAI: response status=', res.status, res.statusText);
+
+                const text = await res.text();
+                // Try to parse JSON if possible
+                let data;
+                try { data = JSON.parse(text); } catch(e) { data = { raw: text }; }
+
+                if (!res.ok) {
+                    console.error('callOpenAI: non-ok response', res.status, data);
+                    throw new Error(`OpenAI error ${res.status}: ${text}`);
+                }
+
+                console.debug('callOpenAI: response data=', data);
+                return data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
+            } catch (err) {
+                console.error('callOpenAI: fetch error', err);
+                throw err;
+            }
+         }
+
+        function startChatUI(){
+            const selector = document.getElementById('agent-selector');
+            if (selector) selector.style.display = 'none';
+            const ctx = document.getElementById('chat-context');
+            if (ctx) ctx.style.display = 'block';
+            const input = document.querySelector('.chat-input');
+            if (input) input.placeholder = 'Type a message...';
+        }
+        // Make startChatUI callable from other scripts
+        window.startChatUI = startChatUI;
+
+        // Replace legacy event listeners by cloning elements
+        function replaceControlsAndBind(){
+            const sendBtn = document.querySelector('.action-btn.send');
+            const textarea = document.querySelector('.chat-input');
+            if (!sendBtn || !textarea) return;
+
+            // Clone to remove previous listeners
+            const newSend = sendBtn.cloneNode(true);
+            sendBtn.parentNode.replaceChild(newSend, sendBtn);
+
+            const newTextarea = textarea.cloneNode(true);
+            textarea.parentNode.replaceChild(newTextarea, textarea);
+
+            const inputEl = document.querySelector('.chat-input');
+            const sendEl = document.querySelector('.action-btn.send');
+
+            // Send handler
+            sendEl.addEventListener('click', async function(){
+                const text = inputEl.value.trim();
+                console.debug('send click: text length=', text.length);
+                if (!text) return;
+                if (document.getElementById('agent-selector') && document.getElementById('agent-selector').style.display !== 'none') {
+                    startChatUI();
+                }
+                chatHistory.push({ role: 'user', content: text });
+                console.debug('send click: chatHistory length=', chatHistory.length);
+                inputEl.value = '';
+                renderChat();
+                waiting = true;
+                renderChat();
+                try {
+                    // Build messages in the format expected by the API
+                    const messagesForApi = chatHistory.map(m => ({ role: m.role, content: m.content }));
+                    console.debug('send click: messagesForApi length=', messagesForApi.length);
+                    const reply = await callOpenAI(messagesForApi);
+                    console.debug('send click: reply length=', (reply || '').length);
+                    chatHistory.push({ role: 'assistant', content: reply });
+                } catch (err) {
+                    console.error('send click: error calling OpenAI', err);
+                    chatHistory.push({ role: 'assistant', content: 'Sorry, an error occurred while contacting the AI. See console for details.' });
+                }
+                waiting = false;
+                renderChat();
+            });
+
+            // Enter key handler
+            inputEl.addEventListener('keydown', function(e){
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    document.querySelector('.action-btn.send').click();
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function(){
+            renderChat();
+            replaceControlsAndBind();
+        });
+
+        // Expose a minimal chat API so conversation manager can switch histories
+        window.chatAPI = {
+            setHistory(messages){
+                if (!Array.isArray(messages)) return;
+                chatHistory = messages.map(m => ({ role: m.role, content: m.content }));
+                renderChat();
+            },
+            getHistory(){
+                return chatHistory.slice();
+            },
+            pushUserMessage: async function(text){
+                if (!text) return;
+                chatHistory.push({ role: 'user', content: text });
+                renderChat();
+                waiting = true; renderChat();
+                try {
+                    const reply = await callOpenAI(chatHistory.map(m => ({ role: m.role, content: m.content })));
+                    chatHistory.push({ role: 'assistant', content: reply });
+                } catch (err) {
+                    console.error('chatAPI pushUserMessage error', err);
+                    chatHistory.push({ role: 'assistant', content: 'Sorry, an error occurred while contacting the AI.' });
+                }
+                waiting = false; renderChat();
+            }
+        };
+
+    })();
+    </script>
+
+    <script>
+    // Conversation manager: only persist conversations explicitly favorited (starred)
+    (function(){
+        const STORAGE_KEY = 'docuchat-favorites';
+        let conversations = []; // { id, title, messages: [{role,content}], favorite }
+        let currentId = null;
+
+        function loadFavorites(){
+            try{
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return;
+                const saved = JSON.parse(raw);
+                conversations = saved.map((c, idx) => ({ id: c.id || ('fav_'+idx), title: c.title || 'Conversation', messages: c.messages || [], favorite: true }));
+            }catch(e){ console.error('loadFavorites error', e); }
+        }
+
+        function saveFavorites(){
+            try{
+                const toSave = conversations.filter(c => c.favorite).map(c => ({ id: c.id, title: c.title, messages: c.messages }));
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+            }catch(e){ console.error('saveFavorites error', e); }
+        }
+
+        function renderConversations(){
+            const list = document.getElementById('conversations-list');
+            const empty = document.querySelector('.no-conversations');
+            if (!list) return;
+            if (conversations.length === 0){ list.innerHTML = ''; if (empty) empty.style.display = 'block'; return; }
+            empty.style.display = 'none';
+            list.innerHTML = conversations.map(c => `
+                <div class="conversation-item ${c.id===currentId? 'active' : ''}" data-id="${c.id}" style="display:flex;align-items:center;justify-content:space-between;padding:8px;border-radius:6px;cursor:pointer;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div style="width:8px;height:8px;border-radius:50%;background:${c.favorite? 'var(--accent)' : 'transparent'};border:1px solid var(--border);"></div>
+                        <div class="conv-title" style="color:var(--text);font-size:13px;">${escapeHtml(c.title)}</div>
+                    </div>
+                    <button class="conv-star" data-id="${c.id}" title="Toggle favorite" style="background:none;border:none;cursor:pointer;padding:4px;">
+                        <i data-lucide="${c.favorite? 'star' : 'star'}" class="icon" style="color:${c.favorite? 'var(--accent)' : 'var(--muted)'}"></i>
+                    </button>
+                </div>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        function createConversation(){
+            const id = 'c_' + Date.now();
+            const conv = { id, title: 'New conversation', messages: [], favorite: false };
+            conversations.push(conv);
+            currentId = id;
+            renderConversations();
+            // Immediately select and show empty chat
+            selectConversation(id);
+            updateHeaderStarUI();
+            // update header title
+            const convTitleEl = document.getElementById('convTitle');
+            if (convTitleEl) convTitleEl.textContent = conv.title;
+            return conv;
+        }
+
+        function selectConversation(id){
+            const conv = conversations.find(c => c.id === id);
+            if (!conv) return;
+            currentId = id;
+            // set chatHistory in chatAPI
+            if (window.chatAPI && typeof window.chatAPI.setHistory === 'function'){
+                // ensure messages are in proper format
+                const msgs = Array.isArray(conv.messages) ? conv.messages.map(m => ({ role: m.role, content: m.content })) : [];
+                window.chatAPI.setHistory(msgs);
+            }
+            // update header title and subtitle
+            const convTitleEl = document.getElementById('convTitle');
+            if (convTitleEl) convTitleEl.textContent = conv.title || 'Conversation';
+            const convSubtitle = document.getElementById('convSubtitle');
+            if (convSubtitle) convSubtitle.textContent = conv.messages && conv.messages.length ? (conv.messages.length + ' messages') : 'Ask questions about your documents';
+            updateHeaderStarUI();
+            renderConversations();
+            // show chat UI (now exposed globally)
+            if (window.startChatUI) window.startChatUI();
+        }
+
+        function toggleFavorite(id){
+            const conv = conversations.find(c => c.id === id);
+            if (!conv) return;
+            conv.favorite = !conv.favorite;
+            // if favoriting, ensure messages are up-to-date
+            if (conv.favorite && window.chatAPI && typeof window.chatAPI.getHistory === 'function'){
+                conv.messages = window.chatAPI.getHistory();
+            }
+            renderConversations();
+            saveFavorites();
+            updateHeaderStarUI();
+        }
+
+        function escapeHtml(text){ return (text||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+        // Wire up add button
+        const addBtn = document.querySelector('.add-btn');
+        if (addBtn) addBtn.addEventListener('click', function(){ createConversation(); });
+
+        // Header star and editable title handling
+        const headerStarBtn = document.getElementById('headerStar');
+        const convTitleEl = document.getElementById('convTitle');
+
+        function updateHeaderStarUI(){
+            const conv = conversations.find(c => c.id === currentId);
+            if (!headerStarBtn) return;
+            const icon = headerStarBtn.querySelector('i');
+            if (conv && conv.favorite){
+                headerStarBtn.title = 'Unfavorite conversation';
+                if (icon) icon.style.color = 'var(--accent)';
+            } else {
+                headerStarBtn.title = 'Favorite conversation';
+                if (icon) icon.style.color = 'var(--muted)';
+            }
+            lucide.createIcons();
+        }
+
+        if (headerStarBtn) headerStarBtn.addEventListener('click', function(){
+            // If there is no current conversation, create one first
+            if (!currentId){ const conv = createConversation(); currentId = conv.id; }
+            toggleFavorite(currentId);
+            updateHeaderStarUI();
+        });
+
+        // Editable title: save changes to current conversation title when blurred or Enter pressed
+        if (convTitleEl){
+            convTitleEl.addEventListener('keydown', function(e){
+                if (e.key === 'Enter'){
+                    e.preventDefault();
+                    convTitleEl.blur();
+                }
+            });
+            convTitleEl.addEventListener('blur', function(){
+                const text = convTitleEl.textContent.trim();
+                if (!currentId){ // if no conversation yet, create one and set title
+                    const conv = createConversation(); currentId = conv.id;
+                }
+                const conv = conversations.find(c => c.id === currentId);
+                if (conv){ conv.title = text || 'Conversation'; renderConversations(); if (conv.favorite) saveFavorites(); }
+            });
+        }
+
+        // Delegate clicks inside conversations list
+        document.addEventListener('click', function(e){
+            const star = e.target.closest('.conv-star');
+            if (star){ e.stopPropagation(); toggleFavorite(star.dataset.id); return; }
+            const item = e.target.closest('.conversation-item');
+            if (item){ selectConversation(item.dataset.id); }
+        });
+
+        // When chatAPI updates (user sends message) we should attach message to current conversation
+        // Monkey-patch chatAPI.pushUserMessage to also store messages for current conversation
+        const originalInit = function(){
+            // nothing
+        };
+
+        // Initialize
+        loadFavorites();
+        renderConversations();
+
+        // Periodically sync active chat to current conversation (when messages change)
+        setInterval(function(){
+            if (!currentId) return;
+            const conv = conversations.find(c => c.id === currentId);
+            if (!conv || !window.chatAPI || !window.chatAPI.getHistory) return;
+            const history = window.chatAPI.getHistory();
+            // Only write to storage if conversation is favorite
+            conv.messages = history;
+            if (conv.favorite) saveFavorites();
+        }, 2000);
+
+        // Expose small API
+        window.convManager = { createConversation, selectConversation, toggleFavorite, getConversations: () => conversations };
+    })();
+    </script>
+</body>
+</html>
