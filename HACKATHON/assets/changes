@@ -1,64 +1,11 @@
-// === File API (ADD) ===
+const PORT = process.env.PORT || 3001;
 
-// List files (sorted by uploadedAt desc)
-app.get("/api/files", (_req, res) => {
-  const meta = loadMeta();
-  meta.sort((a,b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
-  res.json(meta);
-});
-
-// Upload multiple
-// Form fields: files[] (input name), category (string)
-app.post("/api/files", upload.array("files", 20), (req, res) => {
-  const category = (req.body.category || "Uncategorized").trim();
-  const now = new Date().toISOString();
-  const meta = loadMeta();
-
-  const saved = (req.files || []).map(f => {
-    const id = path.basename(f.filename, path.extname(f.filename));
-    const record = {
-      id,
-      name: f.originalname,
-      size: f.size,
-      type: f.mimetype,
-      category,
-      uploadedAt: now,
-      path: `/files/${f.filename}` // served statically
-    };
-    meta.push(record);
-    return record;
+app.listen(PORT, () => {
+  console.log(`SecureGPT proxy + File API running on http://localhost:${PORT}`);
+  console.table({
+    'Files list': 'GET  /api/files',
+    'Upload':     'POST /api/files (multipart: files[], category)',
+    'Open file':  'GET  /files/<uuid>.<ext>',
+    'Delete':     'DELETE /api/files/:id'
   });
-
-  saveMeta(meta);
-  res.status(201).json({ uploaded: saved });
-});
-
-// Download by id
-app.get("/api/files/:id", (req, res) => {
-  const meta = loadMeta();
-  const item = meta.find(m => m.id === req.params.id);
-  if (!item) return res.status(404).json({ error: "Not found" });
-
-  const filename = path.basename(item.path);
-  const abs = path.join(DOCS_DIR, filename);
-  if (!fs.existsSync(abs)) return res.status(404).json({ error: "File missing" });
-
-  res.download(abs, item.name);
-});
-
-// Delete by id
-app.delete("/api/files/:id", (req, res) => {
-  const meta = loadMeta();
-  const idx = meta.findIndex(m => m.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "Not found" });
-
-  const item = meta[idx];
-  const filename = path.basename(item.path);
-  const abs = path.join(DOCS_DIR, filename);
-
-  if (fs.existsSync(abs)) fs.removeSync(abs);
-  meta.splice(idx, 1);
-  saveMeta(meta);
-
-  res.json({ deleted: item.id });
 });
