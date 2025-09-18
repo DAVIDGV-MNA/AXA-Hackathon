@@ -1,27 +1,63 @@
-const crypto = require("crypto");
-function uuidv4() {
-  return crypto.randomUUID
-    ? crypto.randomUUID()
-    : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
-        (c ^ crypto.randomBytes(1)[0] & 15 >> c / 4).toString(16)
-      );
+let cachedToken = null;
+let tokenExpiry = 0;
+
+function dumpJwtClaims(at) {
+  try {
+    const parts = at.split(".");
+    const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
+    console.log("[token] aud:", payload.aud, "scp:", payload.scp, "roles:", payload.roles);
+  } catch (e) { console.log("[token] parse fail", e); }
 }
 
-function isoWithOffset() {
-  const d = new Date();
-  const off = -d.getTimezoneOffset(); // minutes
-  const sign = off >= 0 ? "+" : "-";
-  const pad = n => String(Math.floor(Math.abs(n))).padStart(2,"0");
-  const hh = pad(off/60), mm = pad(off%60);
-  return d.toISOString().replace("Z", `${sign}${hh}:${mm}`);
-}
+async function getAccessToken() {
+  const now = Math.floor(Date.now()/1000);
+  if (cachedToken && now < tokenExpiry - 60) return cachedToken;
 
-function axaHeadersOnce() {
-  // Build the custom headers required by your platform
-  return {
-    "usuario":   process.env.SECUREGPT_HEADER_USUARIO || "MX000000000A",
-    "sistemaId": process.env.SECUREGPT_HEADER_SISTEMAID || "AXA",
-    "UUID":      process.env.SECUREGPT_HEADER_UUID || uuidv4(),
-    "fechaHora": process.env.SECUREGPT_HEADER_FECHAHORA || isoWithOffset()
+  const {
+    SECUREGPT_CLIENT_ID,
+    SECUREGPT_CLIENT_SECRET,
+    SECUREGPT_URL_TOKEN,
+    // << IMPORTANT: this is the scope from your teammate’s snippet
+    SECUREGPT_SCOPE = "urn:grp:chatgpt",
+    TOKEN_AUTH_METHOD // optional: "basic" or "body" (default)
+  } = process.env;
+
+  const headers = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    ...axaHeadersOnce() // usuario, sistemaId, UUID, fechaHora
   };
+
+  const body = new URLSearchParams({ grant_type: "client_credentials" });
+
+  if ((TOKEN_AUTH_METHOD || "").toLowerCase() === "basic") {
+    headers["Authorization"] = "Basic " + Buffer.from(
+      `${SECUREGPT_CLIENT_ID}:${SECUREGPT_CLIENT_SECRET}`
+    ).toString("base64");
+  } else {
+    body.set("client_id", SECUREGPT_CLIENT_ID);
+    body.set("client_secret", SECUREGPT_CLIENT_SECRET);
+  }
+
+  // Scope required by SecureGPT gateway
+  body.set("scope", SECUREGPT_SCOPE);
+
+  console.log("[token] POST", SECUREGPT_URL_TOKEN, "headers:", headers, "body:", body.toString());
+
+  const resp = await fetch(SECUREGPT_URL_TOKEN, {
+    method: "POST",
+    headers,
+    body
+  });
+
+  const raw = await resp.text();
+  if (!resp.ok) {
+    console.error("[token] ERROR", resp.status, raw);
+    throw new Error(`Token error ${resp.status}: ${raw}`);
+  }
+
+  const data = JSON.parse(raw);
+  cachedToken = data.access_token;
+  tokenExpiry = data.expires_in ? now + data.expires_in : now + 300;
+  dumpJwtClaims(cachedToken);
+  return cachedToken;
 }
