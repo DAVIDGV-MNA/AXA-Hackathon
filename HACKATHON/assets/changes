@@ -1,20 +1,12 @@
-// === Local file storage config (ADD) ===
-const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, "data");
-const DOCS_DIR = path.join(DATA_DIR, "docs");
-const META_FILE = path.join(DATA_DIR, "metadata.json");
-
-// Ensure folders/files exist
-fs.ensureDirSync(DOCS_DIR);
-if (!fs.existsSync(META_FILE)) fs.writeJsonSync(META_FILE, []);
-
-// Publicly serve saved files, e.g., http://localhost:3001/files/<filename>
-app.use("/files", express.static(DOCS_DIR));
-
-// Metadata helpers
-function loadMeta() {
-  try { return fs.readJsonSync(META_FILE); } catch { return []; }
-}
-function saveMeta(arr) {
-  fs.writeJsonSync(META_FILE, arr, { spaces: 2 });
-}
+// === Multer (disk) (ADD) ===
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, DOCS_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || "");
+    cb(null, `${uuidv4()}${ext}`);
+  }
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 } // 50 MB per file (tweak as needed)
+});
