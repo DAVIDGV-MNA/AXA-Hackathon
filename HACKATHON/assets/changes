@@ -14,27 +14,31 @@
 .doc-icon .icon{width:16px;height:16px;}
 </style>
 
-<section id="documentsView" style="display:block;">
-  <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
-    <input id="docSearch" placeholder="Search documents..." style="flex:1;padding:8px 10px;">
-    <button id="refreshDocs">Refresh</button>
-  </div>
-  <div id="docGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
-</section>
+<div id="docuRoot" style="max-width:1100px;margin:0 auto;padding:16px 24px;">
+  <!-- Documents Library -->
+  <section id="documentsView" style="display:block;">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+      <input id="docSearch" class="search-box" placeholder="Search documents..." style="max-width:320px;">
+      <button id="refreshDocs" class="mode-btn">Refresh</button>
+    </div>
+    <div id="docGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+  </section>
 
-<section id="uploadView" style="display:block;margin-top:24px;">
-  <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
-    <label>Category</label>
-    <select id="uploadCategory">
-      <option>Operations</option>
-      <option>Politics</option>
-      <option>Manual</option>
-    </select>
-    <input id="filesInput" type="file" multiple accept=".pdf,.doc,.docx,.txt">
-    <button id="startUpload">Start Upload</button>
-  </div>
-  <div id="uploadMsg" style="font-size:12px;color:#666;"></div>
-</section>
+  <!-- Upload Center -->
+  <section id="uploadView" style="display:block;margin-top:24px;">
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
+      <label style="font-size:12px;color:var(--muted);">Category</label>
+      <select id="uploadCategory" class="search-box" style="max-width:220px;">
+        <option>Operations</option>
+        <option>Politics</option>
+        <option>Manual</option>
+      </select>
+      <input id="filesInput" type="file" multiple accept=".pdf,.doc,.docx,.txt">
+      <button id="startUpload" class="mode-btn active">Start Upload</button>
+    </div>
+    <div id="uploadMsg" style="font-size:12px;color:var(--muted);"></div>
+  </section>
+</div>
 
 <script>
 (function(){
