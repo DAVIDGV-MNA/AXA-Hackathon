@@ -43,93 +43,103 @@
 <script>
 (function(){
   const API = 'http://localhost:3001/api';
+
+  // Hide chat areas while we stand up Documents/Upload
+  document.querySelector('.chat-area')?.style && (document.querySelector('.chat-area').style.display='none');
+  document.querySelector('.input-area')?.style && (document.querySelector('.input-area').style.display='none');
+
+  // Elements
   const docGrid = document.getElementById('docGrid');
   const docSearch = document.getElementById('docSearch');
   const refreshDocs = document.getElementById('refreshDocs');
-
   const filesInput = document.getElementById('filesInput');
   const uploadCategory = document.getElementById('uploadCategory');
   const startUpload = document.getElementById('startUpload');
   const uploadMsg = document.getElementById('uploadMsg');
 
+  if(!docGrid){ console.warn('docGrid not found — check that sections are inside your main content wrapper.'); return; }
+
   let allDocs = [];
 
-  // ---- LIST + RENDER ----
-  async function loadDocs(){
-    const res = await fetch(`${API}/files`);
-    allDocs = await res.json();
-    renderDocs();
+  // ---- API helpers
+  async function listFiles(){
+    const r = await fetch(`${API}/files`);
+    if(!r.ok) throw new Error('List failed: '+r.status);
+    return r.json();
+  }
+  async function delFile(id){
+    const r = await fetch(`${API}/files/${id}`, { method:'DELETE' });
+    if(!r.ok) throw new Error('Delete failed: '+r.status);
   }
 
-  function renderDocs(){
-    const q = (docSearch.value||'').toLowerCase();
+  // ---- Render
+  function render(){
+    const q = (docSearch?.value || '').toLowerCase();
     const filtered = allDocs.filter(d =>
       d.name.toLowerCase().includes(q) ||
       (d.category||'').toLowerCase().includes(q)
     );
-    docGrid.innerHTML = filtered.map(docCard).join('') || `<div style="color:#888;">No documents</div>`;
+    docGrid.innerHTML = filtered.length ? filtered.map(card).join('') : `<div style="color:var(--muted);">No documents</div>`;
 
-    // bind delete buttons after render
+    // bind delete buttons
     docGrid.querySelectorAll('[data-del]').forEach(btn=>{
       btn.onclick = async () => {
         if(!confirm('Delete this file?')) return;
-        await fetch(`${API}/files/${btn.dataset.del}`, { method:'DELETE' });
-        await loadDocs();
+        try { await delFile(btn.dataset.del); await load(); }
+        catch(e){ alert('Delete failed'); console.error(e); }
       };
     });
   }
-
-  function docCard(d){
+  function card(d){
     const size = (d.size/1024/1024).toFixed(1) + ' MB';
     const date = new Date(d.uploadedAt).toLocaleDateString();
     return `
-      <div style="border:1px solid #e3e3e3;border-radius:10px;padding:12px;background:#fff;">
+      <div class="document-card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%">${d.name}</div>
-          <button data-del="${d.id}" title="Delete">🗑️</button>
+          <div style="font-weight:600;max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${d.name}">${d.name}</div>
+          <button class="mode-btn" data-del="${d.id}" title="Delete">🗑</button>
         </div>
-        <div style="font-size:12px;color:#666;margin:6px 0;">${date} • ${size}</div>
+        <div style="font-size:12px;color:var(--muted);margin:6px 0;">${date} • ${size}</div>
         <div style="display:flex;gap:8px;align-items:center;">
-          <span style="font-size:12px;padding:2px 8px;border:1px solid #e3e3e3;border-radius:999px;">${d.category}</span>
-          <a href="http://localhost:3001${d.path}" target="_blank">Open</a>
+          <span style="font-size:12px;padding:3px 8px;border:1px solid var(--border);border-radius:999px;">${d.category}</span>
+          <a href="http://localhost:3001${d.path}" target="_blank" class="mode-btn">Open</a>
         </div>
       </div>`;
   }
 
-  // ---- UPLOAD ----
-  startUpload.onclick = async () => {
-    const files = filesInput.files;
+  // ---- Load & events
+  async function load(){
+    try { allDocs = await listFiles(); }
+    catch(e){ console.error(e); allDocs = []; }
+    render();
+  }
+  refreshDocs?.addEventListener('click', load);
+  docSearch?.addEventListener('input', render);
+
+  startUpload?.addEventListener('click', async ()=>{
+    const files = filesInput?.files;
     if(!files || !files.length){ uploadMsg.textContent='Pick files first'; return; }
-
     const fd = new FormData();
-    [...files].forEach(f => fd.append('files', f)); // name MUST be 'files'
-    fd.append('category', uploadCategory.value || 'Uncategorized');
+    [...files].forEach(f => fd.append('files', f)); // must be 'files'
+    fd.append('category', uploadCategory?.value || 'Uncategorized');
 
-    startUpload.disabled = true;
-    startUpload.textContent = 'Uploading...';
-    uploadMsg.textContent = '';
-
+    startUpload.disabled = true; startUpload.textContent='Uploading…'; uploadMsg.textContent='';
     try{
-      const res = await fetch(`${API}/files`, { method:'POST', body: fd });
-      if(!res.ok) throw new Error(await res.text());
-      await res.json();
+      const r = await fetch(`${API}/files`, { method:'POST', body: fd });
+      if(!r.ok) throw new Error(await r.text());
+      await r.json();
       filesInput.value = '';
       uploadMsg.textContent = 'Upload complete ✅';
-      await loadDocs(); // refresh list
-    }catch(err){
-      console.error(err);
+      await load();
+    }catch(e){
+      console.error(e);
       uploadMsg.textContent = 'Upload failed ❌';
     }finally{
-      startUpload.disabled = false;
-      startUpload.textContent = 'Start Upload';
+      startUpload.disabled = false; startUpload.textContent='Start Upload';
     }
-  };
+  });
 
-  // ---- EVENTS ----
-  if (refreshDocs) refreshDocs.onclick = loadDocs;
-  if (docSearch) docSearch.oninput = renderDocs;
-
-  // initial load
-  loadDocs();
+  // initial
+  load();
 })();
 </script>
