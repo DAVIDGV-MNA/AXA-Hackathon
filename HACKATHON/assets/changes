@@ -1,40 +1,8 @@
-async function callSecureGPTChat(messages) {
-  const payload = {
-    api_version: SECUREGPT_CONFIG.API_VERSION || "",
-    url_version: SECUREGPT_CONFIG.URL_VERSION || "",
-    model_url: SECUREGPT_CONFIG.MODEL_URL || "",
-    messages
-  };
-
-  console.log("[SecureGPT][chat] -> /securegpt/chat payload:", payload);
-
-  let res, text;
-  try {
-    res = await fetch(SECUREGPT_PROXY.CHAT, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(payload)
-    });
-    text = await res.text();
-  } catch (netErr) {
-    console.error("[SecureGPT][chat] network error:", netErr);
-    throw new Error("Network error calling /securegpt/chat. See console.");
-  }
-
-  console.log("[SecureGPT][chat] <- status:", res.status);
-  console.log("[SecureGPT][chat] <- raw:", text);
-
-  let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
-
-  if (!res.ok) {
-    // Surface upstream error clearly to UI
-    const msg = data?.error || data?.message || text || `HTTP ${res.status}`;
-    throw new Error(`SecureGPT chat error: ${msg}`);
-  }
-
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("SecureGPT chat: empty response or unexpected shape.");
-  }
-  return content;
-}
+<script>
+/* Make these globals so every script sees them, even on file:// */
+window.SECUREGPT_PROXY = {
+  TOKEN: "http://localhost:3001/securegpt/token",
+  CHAT:  "http://localhost:3001/securegpt/chat",
+  EMBED: "http://localhost:3001/securegpt/embeddings"
+};
+</script>
