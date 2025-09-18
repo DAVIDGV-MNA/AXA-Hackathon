@@ -1,8 +1,27 @@
-const fs = require("fs");
-const { Agent, setGlobalDispatcher } = require("undici"); // Node 20's fetch uses undici
+const crypto = require("crypto");
+function uuidv4() {
+  return crypto.randomUUID
+    ? crypto.randomUUID()
+    : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+        (c ^ crypto.randomBytes(1)[0] & 15 >> c / 4).toString(16)
+      );
+}
 
-const caPath = "C:\\certs\\axa-chain.pem";              // path to your combined CA
-const ca = fs.readFileSync(caPath, "utf8");
+function isoWithOffset() {
+  const d = new Date();
+  const off = -d.getTimezoneOffset(); // minutes
+  const sign = off >= 0 ? "+" : "-";
+  const pad = n => String(Math.floor(Math.abs(n))).padStart(2,"0");
+  const hh = pad(off/60), mm = pad(off%60);
+  return d.toISOString().replace("Z", `${sign}${hh}:${mm}`);
+}
 
-// Make this CA trusted for all fetch() calls
-setGlobalDispatcher(new Agent({ connect: { ca } }));
+function axaHeadersOnce() {
+  // Build the custom headers required by your platform
+  return {
+    "usuario":   process.env.SECUREGPT_HEADER_USUARIO || "MX000000000A",
+    "sistemaId": process.env.SECUREGPT_HEADER_SISTEMAID || "AXA",
+    "UUID":      process.env.SECUREGPT_HEADER_UUID || uuidv4(),
+    "fechaHora": process.env.SECUREGPT_HEADER_FECHAHORA || isoWithOffset()
+  };
+}
