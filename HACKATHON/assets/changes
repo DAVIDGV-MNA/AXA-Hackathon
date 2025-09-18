@@ -1,3 +1,19 @@
+
+<style>
+:root{
+  --panel:#ffffff; 
+  --border:#e5e7eb; 
+  --text:#111827; 
+  --muted:#6b7280; 
+  --tile:#f9fafb;
+}
+.mode-btn{border:1px solid var(--border); padding:6px 10px; border-radius:8px; background:var(--panel); cursor:pointer;}
+.mode-btn.active{background:#111827; color:#fff; border-color:#111827;}
+.search-box{border:1px solid var(--border); padding:8px 10px; border-radius:8px; width:100%;}
+.document-card{border:1px solid var(--border); border-radius:10px; background:var(--panel); padding:12px;}
+.doc-icon .icon{width:16px;height:16px;}
+</style>
+
 <section id="documentsView" style="display:block;">
   <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
     <input id="docSearch" placeholder="Search documents..." style="flex:1;padding:8px 10px;">
