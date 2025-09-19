@@ -1,56 +1,55 @@
-app.post("/securegpt/chat", async (req, res) => {
-  // quick content-type sanity (helps when calling from HTML)
-  const ct = req.headers["content-type"] || "";
-  if (!ct.includes("application/json")) {
-    return res.status(415).json({
-      error: "Unsupported Media Type",
-      hint: "Send application/json with a JSON body."
+app.post('/securegpt/chat', async (req, res) => {
+  try {
+    // Sanity: confirm JSON body arrived
+    if (!req.body || typeof req.body !== 'object') {
+      return res.status(400).json({ error: 'Expected application/json body' });
+    }
+
+    console.log('[securegpt/chat] inbound body:', JSON.stringify(req.body));
+
+    const token = await getAccessToken();
+    console.log('[securegpt/chat] token acquired');
+
+    // Safe destructuring with fallback {}
+    const {
+      api_version,
+      url_version,
+      model_url,
+      messages,
+      model
+    } = req.body;
+
+    if (!api_version || !model_url || !Array.isArray(messages)) {
+      return res.status(400).json({
+        error: 'Missing required fields: api_version, model_url, messages[]'
+      });
+    }
+
+    // Build target URL and headers
+    const chatUrl = model_url; // if you have a buildUrl(), you can wrap here
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    };
+
+    const outboundBody = {
+      ...(model ? { model } : {}),
+      messages
+    };
+
+    const r = await fetch(chatUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(outboundBody)
     });
-  }
 
-  // safe destructure with defaults
-  const body = req.body || {};
-  const {
-    api_version = "2024-10-21",
-    deployment_id,
-    messages = [],
-    temperature = 0.2,
-    max_tokens = 512,
-    top_p,
-    presence_penalty,
-    frequency_penalty
-  } = body;
+    const raw = await r.text();
+    console.log('[securegpt/chat] <- upstream status:', r.status);
 
-  // minimal validation to avoid undefined errors downstream
-  if (!deployment_id) {
-    return res.status(400).json({ error: "deployment_id is required" });
+    // Pass-through status & body
+    res.status(r.status).type('application/json').send(raw);
+  } catch (e) {
+    console.error('/securegpt/chat ERROR:', e);
+    res.status(500).json({ error: String(e?.message || e) });
   }
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: "messages[] is required" });
-  }
-
-  // ... your existing token acquisition + fetch to SecureGPT here
-  // be sure to handle/await and return JSON
 });
-
-async function callSecureGPTChat(messages) {
-  const payload = {
-    api_version: "2024-10-21",
-    deployment_id: "gpt-40-2024-11-20",   // or your secured deployment
-    messages,
-    temperature: 0.2,
-    max_tokens: 800
-  };
-
-  const res = await fetch("http://localhost:3001/securegpt/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-
-  if (!res.ok) {
-    const err = await res.text().catch(() => "");
-    throw new Error(`Proxy error ${res.status}: ${err}`);
-  }
-  return res.json();
-}
