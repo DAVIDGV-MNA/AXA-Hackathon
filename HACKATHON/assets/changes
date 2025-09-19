@@ -1,41 +1,56 @@
-<script src="https://unpkg.com/lucide@latest"></script>
-<script>document.addEventListener('DOMContentLoaded', () => lucide.createIcons());</script>
+app.post("/securegpt/chat", async (req, res) => {
+  // quick content-type sanity (helps when calling from HTML)
+  const ct = req.headers["content-type"] || "";
+  if (!ct.includes("application/json")) {
+    return res.status(415).json({
+      error: "Unsupported Media Type",
+      hint: "Send application/json with a JSON body."
+    });
+  }
 
+  // safe destructure with defaults
+  const body = req.body || {};
+  const {
+    api_version = "2024-10-21",
+    deployment_id,
+    messages = [],
+    temperature = 0.2,
+    max_tokens = 512,
+    top_p,
+    presence_penalty,
+    frequency_penalty
+  } = body;
 
-.icon{
-  width:22px; height:22px; vertical-align:-2px; stroke-width:1.75; color:var(--icon);
-}
-.nav-item .icon{ margin-right:8px; }
+  // minimal validation to avoid undefined errors downstream
+  if (!deployment_id) {
+    return res.status(400).json({ error: "deployment_id is required" });
+  }
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: "messages[] is required" });
+  }
 
-<nav class="nav">
-  <a href="index.html" class="nav-item">
-    <i data-lucide="message-square" class="icon"></i> <span>Chat</span>
-  </a>
-  <a href="documents.html" class="nav-item">
-    <i data-lucide="file-text" class="icon"></i> <span>Documents</span>
-  </a>
-  <a href="upload.html" class="nav-item active">
-    <i data-lucide="upload" class="icon"></i> <span>Upload</span>
-  </a>
-</nav>
+  // ... your existing token acquisition + fetch to SecureGPT here
+  // be sure to handle/await and return JSON
+});
 
-<a href="index.html" class="nav-item active">
-  <i data-lucide="message-square" class="icon"></i> Chat
-</a>
-<a href="documents.html" class="nav-item">
-  <i data-lucide="file-text" class="icon"></i> Documents
-</a>
-<a href="upload.html" class="nav-item">
-  <i data-lucide="upload" class="icon"></i> Upload
-</a>
+async function callSecureGPTChat(messages) {
+  const payload = {
+    api_version: "2024-10-21",
+    deployment_id: "gpt-40-2024-11-20",   // or your secured deployment
+    messages,
+    temperature: 0.2,
+    max_tokens: 800
+  };
 
-<script>
-  const page = (location.pathname.split('/').pop() || 'index.html').toLowerCase();
-  document.querySelectorAll('.nav a').forEach(a=>{
-    const target = (a.getAttribute('href')||'').toLowerCase();
-    if (page === target) a.classList.add('active');
+  const res = await fetch("http://localhost:3001/securegpt/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
   });
-</script>
 
-const path = require("path");
-app.use("/", express.static(path.join(__dirname, "public")));
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`Proxy error ${res.status}: ${err}`);
+  }
+  return res.json();
+}
