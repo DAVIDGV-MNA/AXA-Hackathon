@@ -1,55 +1,295 @@
-app.post('/securegpt/chat', async (req, res) => {
-  try {
-    // Sanity: confirm JSON body arrived
-    if (!req.body || typeof req.body !== 'object') {
-      return res.status(400).json({ error: 'Expected application/json body' });
+# rag_service.py
+import os, json, glob, re, pickle
+from typing import List, Dict, Any, Tuple
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import requests
+import numpy as np
+from pathlib import Path
+from uuid import uuid4
+
+# -------- Settings
+UPLOAD_DIR = Path("./uploads")
+STORE_DIR  = Path("./vectorstore")
+STORE_DIR.mkdir(parents=True, exist_ok=True)
+
+# You can move these to env vars if you prefer
+SECUREGPT_EMBED_URL = os.getenv("SECUREGPT_EMBED_URL", "http://localhost:3001/securegpt/embeddings")
+SECUREGPT_CHAT_URL  = os.getenv("SECUREGPT_CHAT_URL",  "http://localhost:3001/securegpt/chat")
+SECUREGPT_API_VERSION = os.getenv("SECUREGPT_API_VERSION", "2024-10-21")
+
+# Adjust to your org’s endpoints if needed
+SECUREGPT_EMBED_MODEL_URL = os.getenv(
+    "SECUREGPT_EMBED_MODEL_URL",
+    "https://api-int.se.axa-go.applications.services.axa-tech.intraxa/ago-m365-securegpt-hub-v1-vrs/providers/openai/deployments/text-embedding-3-large/embeddings?api-version=2024-10-21"
+)
+SECUREGPT_CHAT_MODEL_URL = os.getenv(
+    "SECUREGPT_CHAT_MODEL_URL",
+    "https://api-int.se.axa-go.applications.services.axa-tech.intraxa/ago-m365-securegpt-hub-v1-vrs/providers/openai/deployments/gpt-4o-2024-11-20/chat/completions?api-version=2024-10-21"
+)
+
+# -------- Simple chunker
+def simple_chunks(text: str, *, max_chars=1200, overlap=120) -> List[str]:
+    text = re.sub(r"\s+", " ", text).strip()
+    chunks = []
+    i = 0
+    while i < len(text):
+        chunk = text[i:i+max_chars]
+        j = chunk.rfind(". ")
+        if j > 400:  # try to end at a sentence boundary when possible
+            chunk = chunk[:j+1]
+        chunks.append(chunk)
+        i += max(1, len(chunk) - overlap)
+    return chunks
+
+# -------- Embeddings via SecureGPT proxy
+def embed_texts(texts: List[str]) -> np.ndarray:
+    payload = {
+        "api_version": SECUREGPT_API_VERSION,
+        "model_url": SECUREGPT_EMBED_MODEL_URL,
+        "input": texts
     }
+    r = requests.post(SECUREGPT_EMBED_URL, json=payload, timeout=120)
+    r.raise_for_status()
+    data = r.json()
+    vecs = [np.array(item["embedding"], dtype=np.float32) for item in data["data"]]
+    return np.vstack(vecs)
 
-    console.log('[securegpt/chat] inbound body:', JSON.stringify(req.body));
+# -------- Vector store (FAISS)
+try:
+    import faiss  # pip install faiss-cpu
+except Exception as e:
+    raise RuntimeError("Please `pip install faiss-cpu`") from e
 
-    const token = await getAccessToken();
-    console.log('[securegpt/chat] token acquired');
+INDEX_FILE = STORE_DIR / "index.faiss"
+META_FILE  = STORE_DIR / "meta.pkl"
 
-    // Safe destructuring with fallback {}
-    const {
-      api_version,
-      url_version,
-      model_url,
-      messages,
-      model
-    } = req.body;
+def load_store():
+    if INDEX_FILE.exists() and META_FILE.exists():
+        index = faiss.read_index(str(INDEX_FILE))
+        meta  = pickle.loads(META_FILE.read_bytes())
+        return index, meta
+    return None, []
 
-    if (!api_version || !model_url || !Array.isArray(messages)) {
-      return res.status(400).json({
-        error: 'Missing required fields: api_version, model_url, messages[]'
-      });
+def save_store(index, meta):
+    faiss.write_index(index, str(INDEX_FILE))
+    META_FILE.write_bytes(pickle.dumps(meta))
+
+# -------- File loaders
+def load_txt_or_md(path: Path) -> List[Tuple[str, int]]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        text = ""
+    # page = 1 for whole-file sources to keep schema consistent
+    return [(text, 1)]
+
+def load_docx(path: Path) -> List[Tuple[str, int]]:
+    # Returns [(full_text, 1)] — DOCX has no pages, but we keep page=1
+    try:
+        import docx2txt
+    except Exception as e:
+        raise RuntimeError("Please `pip install docx2txt` to parse .docx files.") from e
+    try:
+        text = docx2txt.process(str(path)) or ""
+    except Exception:
+        text = ""
+    return [(text, 1)]
+
+def load_pdf(path: Path) -> List[Tuple[str, int]]:
+    # Returns list of (page_text, page_number) 1-indexed
+    try:
+        from pypdf import PdfReader
+    except Exception as e:
+        raise RuntimeError("Please `pip install pypdf` to parse .pdf files.") from e
+    pages: List[Tuple[str, int]] = []
+    try:
+        reader = PdfReader(str(path))
+        for i, p in enumerate(reader.pages):
+            try:
+                t = p.extract_text() or ""
+            except Exception:
+                t = ""
+            pages.append((t, i+1))
+    except Exception:
+        # If PDF is corrupted or extraction fails, return empty
+        pass
+    return pages
+
+def load_file_to_chunks(path: Path) -> List[Dict[str, Any]]:
+    """
+    Returns a list of chunk dicts with text + metadata:
+    [{"text": "...", "path": "...", "page": <int>}, ...]
+    """
+    ext = path.suffix.lower()
+    pieces: List[Tuple[str, int]] = []
+    if ext in [".txt", ".md"]:
+        pieces = load_txt_or_md(path)
+    elif ext == ".pdf":
+        pieces = load_pdf(path)
+    elif ext == ".docx":
+        pieces = load_docx(path)
+    else:
+        # unsupported type -> skip
+        return []
+
+    chunks: List[Dict[str, Any]] = []
+    for text, page in pieces:
+        if not text.strip():
+            continue
+        for ch in simple_chunks(text):
+            if not ch.strip():
+                continue
+            chunks.append({
+                "id": str(uuid4()),
+                "text": ch,
+                "path": str(path),
+                "page": page
+            })
+    return chunks
+
+def discover_files() -> List[Path]:
+    patterns = ["*.txt", "*.md", "*.pdf", "*.docx"]
+    found: List[Path] = []
+    for pat in patterns:
+        found.extend(UPLOAD_DIR.rglob(pat))
+    # de-dup + sort for determinism
+    return sorted(set(found))
+
+def build_or_update_store():
+    index, meta = load_store()
+
+    # Track already-indexed chunk IDs (not just file paths),
+    # so we can support incremental adds without re-embedding everything.
+    indexed_ids = {m["id"] for m in meta}
+
+    all_files = discover_files()
+    new_chunks: List[Dict[str, Any]] = []
+    for f in all_files:
+        # Load and chunk this file
+        for ch in load_file_to_chunks(f):
+            if ch["id"] in indexed_ids:
+                continue
+            new_chunks.append(ch)
+
+    if not new_chunks and index is not None:
+        return index, meta  # nothing new
+
+    if not new_chunks:
+        # first time but no files present
+        if index is None:
+            index = None
+        return index, meta
+
+    # Embed new chunk texts
+    embeddings = embed_texts([c["text"] for c in new_chunks])
+    dim = embeddings.shape[1]
+
+    # Normalize for cosine similarity
+    faiss.normalize_L2(embeddings)
+
+    if index is None:
+        index = faiss.IndexFlatIP(dim)
+
+    index.add(embeddings)
+    meta.extend(new_chunks)
+    save_store(index, meta)
+    return index, meta
+
+index, meta = build_or_update_store()
+
+def ensure_index_ready():
+    global index, meta
+    if index is None:
+        index, meta = build_or_update_store()
+    return index, meta
+
+# -------- Answer synthesis through SecureGPT (chat)
+def llm_answer(query: str, context_snippets: List[str]) -> str:
+    payload = {
+        "api_version": SECUREGPT_API_VERSION,
+        "model_url": SECUREGPT_CHAT_MODEL_URL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful assistant for RAG. "
+                    "Answer using ONLY the provided context. "
+                    "If the answer is not in the context, say you don't know."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Question: {query}\n\nContext:\n" + "\n\n---\n\n".join(context_snippets),
+            },
+        ],
+        "temperature": 0.1
     }
+    r = requests.post(SECUREGPT_CHAT_URL, json=payload, timeout=120)
+    r.raise_for_status()
+    data = r.json()
+    return data["choices"][0]["message"]["content"]
 
-    // Build target URL and headers
-    const chatUrl = model_url; // if you have a buildUrl(), you can wrap here
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    };
+# -------- API
+class QueryIn(BaseModel):
+    query: str
+    history: List[Dict[str, Any]] = []
+    top_k: int = 5
 
-    const outboundBody = {
-      ...(model ? { model } : {}),
-      messages
-    };
+from fastapi import HTTPException
 
-    const r = await fetch(chatUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(outboundBody)
-    });
+app = FastAPI(title="RAG Service")
 
-    const raw = await r.text();
-    console.log('[securegpt/chat] <- upstream status:', r.status);
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000",
+                   "http://localhost:8080", "http://127.0.0.1:8080", "*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    // Pass-through status & body
-    res.status(r.status).type('application/json').send(raw);
-  } catch (e) {
-    console.error('/securegpt/chat ERROR:', e);
-    res.status(500).json({ error: String(e?.message || e) });
-  }
-});
+@app.post("/rag/query")
+def rag_query(body: QueryIn):
+    idx, m = ensure_index_ready()
+    if idx is None or idx.ntotal == 0:
+        return {
+            "answer": "No documents indexed yet. Upload files into ./uploads and call /rag/reindex.",
+            "sources": []
+        }
+
+    # Embed query
+    qvec = embed_texts([body.query]).astype(np.float32)
+    faiss.normalize_L2(qvec)
+    D, I = idx.search(qvec, body.top_k)
+    I = I[0].tolist()
+    scores = D[0].tolist()
+
+    # Collect context snippets directly from meta (we stored chunk text)
+    context_snips, sources = [], []
+    for row, score in zip(I, scores):
+        if row < 0 or row >= len(m):
+            continue
+        meta_row = m[row]
+        context_snips.append(meta_row["text"])
+        sources.append({
+            "path": meta_row["path"],
+            "page": int(meta_row.get("page", 1)),
+            "score": round(float(score), 4)
+        })
+
+    try:
+        answer = llm_answer(body.query, context_snips)
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"SecureGPT chat error: {e}")
+    return {"answer": answer, "sources": sources}
+
+@app.post("/rag/reindex")
+def rag_reindex():
+    global index, meta
+    index, meta = build_or_update_store()
+    return {
+        "ntotal": int(index.ntotal if index is not None else 0),
+        "files_indexed": len({m["path"] for m in meta})
+    }
