@@ -1,32 +1,62 @@
-from fastapi import HTTPException
+// ----- Core: Chat call through your proxy -----
+async function callSecureGPTChat(messages) {
+  const payload = {
+    api_version: AXA_SECURE_GPT_CONFIG.API_VERSION || "",
+    model_url: AXA_SECURE_GPT_CONFIG.MODEL_URL || "",
+    messages
+  };
 
-@app.get("/health")
-def health():
-    ok = True
-    embed_ok = False
-    try:
-        # tiny “ping” embed
-        payload = {
-            "api_version": SECUREGPT_API_VERSION,
-            "model_url": SECUREGPT_EMBED_MODEL_URL,
-            "input": ["ping"]
-        }
-        requests.post(SECUREGPT_EMBED_URL, json=payload, timeout=10, proxies=BYPASS_PROXIES).raise_for_status()
-        embed_ok = True
-    except Exception:
-        ok = False
-    return {
-        "ok": ok,
-        "securegpt_embeddings": embed_ok,
-        "ntotal": int(index.ntotal) if index else 0
+  console.log("[SecureGPT][chat] -> /securegpt/chat payload:", payload);
+
+  let res, text;
+  try {
+    res = await fetch(SECUREGPT_PROXY_CHAT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    text = await res.text();
+  } catch (err) {
+    console.error("[SecureGPT][chat] network error:", err);
+    throw new Error("Network error calling /securegpt/chat");
+  }
+
+  let data;
+  try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+  if (!res.ok) {
+    const msg = data?.error || data?.message || text || `HTTP ${res.status}`;
+    throw new Error(`SecureGPT chat error: ${msg}`);
+  }
+
+  return data?.choices?.[0]?.message?.content ?? "";
+}
+
+
+
+sendEl.addEventListener('click', async () => {
+  const text = inputEl.value.trim();
+  if (!text) return;
+
+  // push user message
+  chatHistory.push({ role: 'user', content: text });
+  renderChat();
+
+  try {
+    const msgs = chatHistory.map(m => ({ role: m.role, content: m.content }));
+    let reply;
+
+    if (getCurrentMode() === 'retrieve') {
+      reply = await callRAGQuery(text, msgs);      // <- await OK
+    } else {
+      reply = await callSecureGPTChat(msgs);       // <- await OK
     }
 
-@app.post("/rag/reindex")
-def rag_reindex():
-    global index, meta
-    try:
-        index, meta = build_or_update_store()
-        return {"ntotal": int(index.ntotal if index else 0), "files_indexed": len({m["path"] for m in meta})}
-    except requests.exceptions.RequestException as e:
-        # make the failure explicit instead of crashing the server
-        raise HTTPException(status_code=502, detail=f"Cannot reach SecureGPT at {SECUREGPT_EMBED_URL}. {e}")
+    chatHistory.push({ role: 'assistant', content: reply || '(empty reply)' });
+  } catch (err) {
+    chatHistory.push({ role: 'assistant', content: String(err?.message || err) });
+  } finally {
+    inputEl.value = "";
+    renderChat();
+  }
+});
