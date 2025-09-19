@@ -1,233 +1,41 @@
-const path = require("path");
-const fs = require("fs");
-const multer = require("multer");
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>document.addEventListener('DOMContentLoaded', () => lucide.createIcons());</script>
 
-// --- Local storage config ---
-const UPLOAD_DIR = path.join(__dirname, "uploads");
-const INDEX_PATH = path.join(UPLOAD_DIR, "index.json");
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const safe = file.originalname.replace(/[^\w.\-]+/g, "_");
-    cb(null, `${Date.now()}-${safe}`);
-  }
-});
-const upload = multer({ storage });
-
-// --- Load/save simple index ---
-let fileIndex = [];
-try { fileIndex = JSON.parse(fs.readFileSync(INDEX_PATH, "utf8")); } catch {}
-function saveIndex(){ fs.writeFileSync(INDEX_PATH, JSON.stringify(fileIndex, null, 2)); }
-function findById(id){ return fileIndex.find(f => f.id === id); }
-
-// Serve the raw uploaded files
-app.use("/uploads", express.static(UPLOAD_DIR));
-
-// List all files
-app.get("/api/files", (_req, res) => {
-  res.json(fileIndex);
-});
-
-// Upload one or more files with an optional 'category'
-app.post("/api/files", upload.array("files[]", 12), (req, res) => {
-  const category = (req.body.category || "uncategorized").toLowerCase();
-  const added = (req.files || []).map(f => {
-    const rec = {
-      id: uuidv4(),
-      originalName: f.originalname,
-      storedName: path.basename(f.filename),
-      size: f.size,
-      mimetype: f.mimetype,
-      category,
-      url: `/uploads/${path.basename(f.filename)}`,
-      uploadedAt: new Date().toISOString()
-    };
-    fileIndex.push(rec);
-    return rec;
-  });
-  saveIndex();
-  res.status(201).json(added);
-});
-
-// Open by stored filename (convenience redirect)
-app.get("/files/:filename", (req, res) => {
-  const target = path.join(UPLOAD_DIR, req.params.filename);
-  if (!fs.existsSync(target)) return res.status(404).send("Not found");
-  res.sendFile(target);
-});
-
-// Delete by id
-app.delete("/api/files/:id", (req, res) => {
-  const idx = fileIndex.findIndex(f => f.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "Not found" });
-  const rec = fileIndex[idx];
-  const full = path.join(UPLOAD_DIR, rec.storedName);
-  try { if (fs.existsSync(full)) fs.unlinkSync(full); } catch {}
-  fileIndex.splice(idx, 1);
-  saveIndex();
-  res.json({ ok: true });
-});
-
-<!doctype html>
-<html lang="en" data-theme="light">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DocuChat – Upload</title>
-  <link rel="icon" href="data:,"/>
-  <style>
-    :root {
-      --bg:#f8f9fa; --panel:#fff; --border:#e0e0e0; --text:#111827; --muted:#6b7280;
-      --tile:#eef1f4; --accent:#333; --hover:rgba(0,0,0,.04);
-    }
-    [data-theme="dark"] {
-      --bg:#0b1220; --panel:#0f172a; --border:#1f2a37; --text:#e5e7eb; --muted:#9ca3af;
-      --tile:#111827; --accent:#9fb0c8; --hover:rgba(255,255,255,.04);
-    }
-    *{box-sizing:border-box} body{margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
-    .shell{display:grid; grid-template-columns:280px 1fr; min-height:100vh;}
-    .sidebar{background:var(--tile); border-right:1px solid var(--border); padding:16px;}
-    .brand{display:flex; align-items:center; gap:10px; margin-bottom:12px;}
-    .logo{width:32px;height:32px;background:var(--accent);border-radius:6px;color:#fff;display:grid;place-items:center;font-weight:700}
-    .nav a{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:6px;color:var(--text);text-decoration:none}
-    .nav a:hover{background:var(--hover)}
-    .main{display:flex;flex-direction:column}
-    .header{background:var(--panel); border-bottom:1px solid var(--border); padding:16px 24px; display:flex; align-items:center; gap:12px;}
-    .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px;}
-    .grid{display:grid; gap:16px;}
-    .hint{font-size:12px; color:var(--muted)}
-    .drop{border:2px dashed var(--border); border-radius:12px; padding:36px; text-align:center; background:linear-gradient(180deg,var(--panel),var(--tile))}
-    .btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 14px;cursor:pointer}
-    .chips{display:flex; gap:8px; flex-wrap:wrap}
-    .chip{border:1px solid var(--border); background:transparent; color:var(--text); border-radius:999px; padding:6px 10px; cursor:pointer; font-size:12px}
-    .chip.active{background:var(--accent); border-color:var(--accent); color:#fff}
-    table{width:100%; border-collapse:collapse; font-size:14px}
-    th,td{border-bottom:1px solid var(--border); padding:10px; text-align:left}
-    .right{margin-left:auto}
-  </style>
-</head>
-<body>
-<div class="shell">
-  <aside class="sidebar">
-    <div class="brand"><div class="logo">D</div><div><strong>DocuChat</strong><div class="hint">AI Document Assistant</div></div></div>
-    <div class="nav">
-      <a href="index.html">💬 Chat</a>
-      <a href="documents.html">🗂️ Documents</a>
-      <a href="upload.html" style="background:var(--hover)">⬆️ Upload</a>
-    </div>
-  </aside>
-
-  <main class="main">
-    <div class="header"><strong style="font-size:16px">Upload Center</strong><span class="hint">Add new documents to your knowledge base</span></div>
-
-    <div style="padding:20px">
-      <div class="grid">
-        <div class="card">
-          <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px">
-            <strong>Upload Documents</strong><span class="hint">Choose a category to organize uploads</span>
-            <div class="right chips" id="catChips">
-              <button class="chip active" data-cat="politics">Politics</button>
-              <button class="chip" data-cat="operations">Operations</button>
-              <button class="chip" data-cat="manual">Manual</button>
-            </div>
-          </div>
-
-          <div id="drop" class="drop">
-            <div style="font-weight:600">Drag & drop files here</div>
-            <div class="hint" style="margin:6px 0 14px">or</div>
-            <button class="btn" id="browseBtn">Browse Files</button>
-            <div class="hint" style="margin-top:12px">PDF, DOC, DOCX, TXT • up to 10MB each</div>
-            <input id="picker" type="file" multiple accept=".pdf,.doc,.docx,.txt" style="display:none"/>
-          </div>
-        </div>
-
-        <div class="card">
-          <strong style="display:block; margin-bottom:8px">Uploaded Files</strong>
-          <table id="fileTable">
-            <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Category</th><th>Uploaded</th><th></th></tr></thead>
-            <tbody><tr><td colspan="6" class="hint">No files yet</td></tr></tbody>
-          </table>
-        </div>
-
-        <div class="card">
-          <strong>Upload Tips</strong>
-          <ul class="hint" style="margin-top:8px; line-height:1.6">
-            <li>Use descriptive filenames</li>
-            <li>Ensure your document is text-searchable (avoid scanned images)</li>
-            <li>Group related docs by category</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </main>
-</div>
-
-<script>
-const API = "http://localhost:3001";
-let currentCategory = "politics";
-
-document.getElementById("browseBtn").onclick = () => document.getElementById("picker").click();
-document.getElementById("picker").onchange = (e) => handleFiles(e.target.files);
-
-document.getElementById("catChips").addEventListener("click", (e)=>{
-  const b = e.target.closest(".chip"); if(!b) return;
-  document.querySelectorAll(".chip").forEach(c=>c.classList.remove("active"));
-  b.classList.add("active"); currentCategory = b.dataset.cat;
-});
-
-const drop = document.getElementById("drop");
-["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.style.borderColor="#999"; }));
-["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.style.borderColor="var(--border)"; }));
-drop.addEventListener("drop", e => handleFiles(e.dataTransfer.files));
-
-async function handleFiles(fileList){
-  if(!fileList || !fileList.length) return;
-  const fd = new FormData();
-  Array.from(fileList).forEach(f => fd.append("files[]", f));
-  fd.append("category", currentCategory);
-
-  const res = await fetch(`${API}/api/files`, { method:"POST", body: fd });
-  if(!res.ok){ alert("Upload failed"); return; }
-  await refreshTable();
+.icon{
+  width:22px; height:22px; vertical-align:-2px; stroke-width:1.75; color:var(--icon);
 }
+.nav-item .icon{ margin-right:8px; }
 
-async function refreshTable(){
-  const res = await fetch(`${API}/api/files`);
-  const data = await res.json();
-  const tbody = document.querySelector("#fileTable tbody");
-  if(!data.length){ tbody.innerHTML = `<tr><td colspan="6" class="hint">No files yet</td></tr>`; return; }
-  tbody.innerHTML = data.map(row => `
-    <tr>
-      <td><a href="${API}${row.url}" target="_blank" rel="noopener">${escapeHtml(row.originalName)}</a></td>
-      <td>${escapeHtml(row.mimetype || "")}</td>
-      <td>${fmtSize(row.size)}</td>
-      <td>${escapeHtml(row.category)}</td>
-      <td>${new Date(row.uploadedAt).toLocaleString()}</td>
-      <td><button data-id="${row.id}" class="btn" style="padding:6px 10px">Delete</button></td>
-    </tr>
-  `).join("");
-}
+<nav class="nav">
+  <a href="index.html" class="nav-item">
+    <i data-lucide="message-square" class="icon"></i> <span>Chat</span>
+  </a>
+  <a href="documents.html" class="nav-item">
+    <i data-lucide="file-text" class="icon"></i> <span>Documents</span>
+  </a>
+  <a href="upload.html" class="nav-item active">
+    <i data-lucide="upload" class="icon"></i> <span>Upload</span>
+  </a>
+</nav>
 
-document.addEventListener("click", async (e)=>{
-  const b = e.target.closest("button.btn[data-id]");
-  if(!b) return;
-  const id = b.dataset.id;
-  const ok = confirm("Delete this file?");
-  if(!ok) return;
-  const res = await fetch(`${API}/api/files/${id}`, { method:"DELETE" });
-  if(res.ok) refreshTable();
-});
-
-function fmtSize(n){ if(!n && n!==0) return ""; const u=["B","KB","MB","GB"]; let i=0; while(n>=1024 && i<u.length-1){ n/=1024; i++; } return `${n.toFixed(1)} ${u[i]}`; }
-function escapeHtml(t=""){ return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
-
-refreshTable();
-</script>
-</body>
-</html>
-
-<a class="nav-item" href="upload.html">
+<a href="index.html" class="nav-item active">
+  <i data-lucide="message-square" class="icon"></i> Chat
+</a>
+<a href="documents.html" class="nav-item">
+  <i data-lucide="file-text" class="icon"></i> Documents
+</a>
+<a href="upload.html" class="nav-item">
   <i data-lucide="upload" class="icon"></i> Upload
 </a>
+
+<script>
+  const page = (location.pathname.split('/').pop() || 'index.html').toLowerCase();
+  document.querySelectorAll('.nav a').forEach(a=>{
+    const target = (a.getAttribute('href')||'').toLowerCase();
+    if (page === target) a.classList.add('active');
+  });
+</script>
+
+const path = require("path");
+app.use("/", express.static(path.join(__dirname, "public")));
