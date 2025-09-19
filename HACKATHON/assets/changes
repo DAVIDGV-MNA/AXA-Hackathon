@@ -1,1 +1,32 @@
-aaa
+from fastapi import HTTPException
+
+@app.get("/health")
+def health():
+    ok = True
+    embed_ok = False
+    try:
+        # tiny “ping” embed
+        payload = {
+            "api_version": SECUREGPT_API_VERSION,
+            "model_url": SECUREGPT_EMBED_MODEL_URL,
+            "input": ["ping"]
+        }
+        requests.post(SECUREGPT_EMBED_URL, json=payload, timeout=10, proxies=BYPASS_PROXIES).raise_for_status()
+        embed_ok = True
+    except Exception:
+        ok = False
+    return {
+        "ok": ok,
+        "securegpt_embeddings": embed_ok,
+        "ntotal": int(index.ntotal) if index else 0
+    }
+
+@app.post("/rag/reindex")
+def rag_reindex():
+    global index, meta
+    try:
+        index, meta = build_or_update_store()
+        return {"ntotal": int(index.ntotal if index else 0), "files_indexed": len({m["path"] for m in meta})}
+    except requests.exceptions.RequestException as e:
+        # make the failure explicit instead of crashing the server
+        raise HTTPException(status_code=502, detail=f"Cannot reach SecureGPT at {SECUREGPT_EMBED_URL}. {e}")
