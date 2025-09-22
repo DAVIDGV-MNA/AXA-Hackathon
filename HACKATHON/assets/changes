@@ -1,3 +1,1 @@
-curl -s -X POST http://127.0.0.1:3001/securegpt/embeddings `
-  -H "Content-Type: application/json" `
-  -d "{""api_version"":""2024-10-21"",""embeddings_url"":""https://<api-host>/.../embeddings?api-version=2024-10-21"",""input"":[""ping""]}"
+curl -s -X POST http://127.0.0.1:3001/securegpt/embeddings -H "Content-Type: application/json" -d "{\"api_version\":\"2024-10-21\",\"embeddings_url\":\"https://YOUR-API-HOST/PATH/embeddings?api-version=2024-10-21\",\"input\":[\"ping\"]}"
