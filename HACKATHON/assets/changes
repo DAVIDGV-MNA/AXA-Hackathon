@@ -1,1 +1,3 @@
-$env:SECUREGPT_EMBED_MODEL_URL = "https://api-int.se.axa-go.applications.services.axa-tech.intraxa/ago-m365-securegpt-hub-v1-vrs/providers/openai/deployments/ada-search-index-v1/embeddings"
+curl -sS -X POST http://127.0.0.1:3001/securegpt/embeddings ^
+  -H "Content-Type: application/json" ^
+  -d "{\"api_version\":\"$env:SECUREGPT_EMBED_API_VERSION\",\"model_url\":\"$env:SECUREGPT_EMBED_MODEL_URL?api-version=$env:SECUREGPT_EMBED_API_VERSION\",\"input\":[\"ping\"]}"
