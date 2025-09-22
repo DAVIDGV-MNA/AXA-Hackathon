@@ -1,36 +1,3 @@
-// --- SecureGPT: Embeddings proxy ---
-app.post('/securegpt/embeddings', async (req, res) => {
-  try {
-    const { api_version, model_url, input } = req.body || {};
-    if (!model_url) {
-      return res.status(400).json({ error: 'model_url missing in body' });
-    }
-    if (!Array.isArray(input) || input.length === 0) {
-      return res.status(400).json({ error: 'input must be a non-empty array' });
-    }
-
-    // 1) Get OAuth token (your existing helper)
-    const accessToken = await getAccessToken(); // <-- keep your implementation
-
-    // 2) Build upstream URL (keep api-version if the client sent it)
-    const url = new URL(model_url);
-    if (api_version) url.searchParams.set('api-version', api_version);
-
-    // 3) Call AXA embeddings
-    const upstream = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ input })
-    });
-
-    const text = await upstream.text();
-    // Pass through status and body exactly (RAG expects OpenAI/Azure shape)
-    res.status(upstream.status).type('application/json').send(text);
-  } catch (e) {
-    console.error('[/securegpt/embeddings] ERROR:', e);
-    res.status(500).json({ error: String(e?.message || e) });
-  }
-});
+curl -sS -X POST http://127.0.0.1:3001/securegpt/embeddings ^
+  -H "Content-Type: application/json" ^
+  -d "{\"api_version\":\"2024-10-21\",\"model_url\":\"https://api-int.se.axa-go.applications.services.axa-tech.intraxa/ago-m365-securegpt-hub-v1-vrs/providers/openai/deployments/text-embedding-3-large/embeddings?api-version=2024-10-21\",\"input\":[\"ping\"]}"
