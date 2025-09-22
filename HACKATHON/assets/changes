@@ -1,5 +1,3 @@
-const { api_version, url_version, embeddings_url, model_url, model, input } = req.body;
-const embUrl = buildUrl(embeddings_url || model_url || SECUREGPT_URL_EMBEDDINGS, {
-  apiVersion: api_version || SECUREGPT_API_VERSION,
-  urlVersion: url_version || SECUREGPT_URL_VERSION
-});
+curl -s -X POST http://127.0.0.1:3001/securegpt/embeddings `
+  -H "Content-Type: application/json" `
+  -d "{""api_version"":""2024-10-21"",""embeddings_url"":""https://<api-host>/.../embeddings?api-version=2024-10-21"",""input"":[""ping""]}"
