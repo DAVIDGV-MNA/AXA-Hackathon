@@ -1,2 +1,1 @@
-Invoke-RestMethod -Uri http://127.0.0.1:3001/securegpt/embeddings `
-  -Method POST -ContentType 'application/json' -InFile .\payload.json | ConvertTo-Json -Depth 6
+curl.exe -sS -H "Content-Type: application/json" --data-binary "@payload.json" http://127.0.0.1:3001/securegpt/embeddings
