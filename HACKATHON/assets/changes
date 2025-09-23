@@ -1,4 +1,37 @@
-$payload = '{"api_version":"2025-01-01-preview","model_url":"https://api-int.se.axa-go.applications.services.axa-tech.intraxa/ago-m365-securegpt-hub-v1-vrs/providers/openai/deployments/ada-search-index-v1/embeddings","input":["ping"]}'
+Set-Content -Encoding ascii -NoNewline -Path payload.json -Value '{
+  "api_version": "2025-01-01-preview",
+  "model_url": "https://api-int.se.axa-go.applications.services.axa-tech.intraxa/ago-m365-securegpt-hub-v1-vrs/providers/openai/deployments/ada-search-index-v1/embeddings",
+  "input": ["ping"]
+}'
 
-# Use Windows' native curl.exe to avoid PowerShell quirks
-curl.exe -sS -X POST "http://127.0.0.1:3001/securegpt/embeddings" -H "Content-Type: application/json" -d $payload
+app.post('/securegpt/embeddings', async (req, res) => {
+  try {
+    // tolerate object or raw string
+    let payload = req.body;
+    if (!payload || typeof payload !== 'object') {
+      try { payload = JSON.parse(req.body); } catch { payload = {}; }
+    }
+    const { api_version, model_url, input } = payload || {};
+
+    if (!model_url) return res.status(400).json({ error: 'model_url missing in body' });
+    if (!Array.isArray(input) || input.length === 0) {
+      return res.status(400).json({ error: 'input must be a non-empty array' });
+    }
+
+    const accessToken = await getAccessToken(); // your existing helper
+    const url = new URL(model_url);
+    if (api_version) url.searchParams.set('api-version', api_version);
+
+    const upstream = await fetch(url.toString(), {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input })
+    });
+
+    const text = await upstream.text();
+    res.status(upstream.status).type('application/json').send(text);
+  } catch (e) {
+    console.error('[/securegpt/embeddings] ERROR:', e);
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
