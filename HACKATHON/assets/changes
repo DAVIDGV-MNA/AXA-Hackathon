@@ -1,99 +1,204 @@
-# =========================
-# Interactive Assessment & Verification (Create Mode)
-# =========================
-from dataclasses import dataclass, asdict
-from typing import Optional
-import difflib, json, re, numpy as np
+# ---------- create_service.py ----------
+# Purpose: independent service for Create-mode Assessment + Verifier
+# Run:     uvicorn create_service:app --reload --port 8001
+#
+# Requires:
+#   pip install fastapi uvicorn requests numpy pydantic chardet pypdf python-docx
+#
+# Env vars (examples):
+#   SECUREGPT_AUTH_URL="https://onelogin.stg.axa.com/ss/token.oauth2"
+#   SECUREGPT_SCOPE="urn:prch:prchtpt"
+#   CLIENT_ID="..."
+#   CLIENT_SECRET="..."
+#   SECUREGPT_API_VERSION="2024-10-21"
+#   # Use proxy (preferred) OR direct URLs:
+#   SECUREGPT_PROXY_EMBED_URL="http://127.0.0.1:3001/securegpt/embeddings"
+#   SECUREGPT_PROXY_CHAT_URL="http://127.0.0.1:3001/securegpt/chat"
+#   SECUREGPT_EMBED_MODEL_URL="https://api-int.../embeddings"
+#   SECUREGPT_CHAT_MODEL_URL="https://api-int.../chat/completions"
+#   REQUESTS_VERIFY_TLS=false
+#   # Optional: where your prebuilt vectors live (defaults shown):
+#   UPLOAD_DIR="./uploads"
+#   VECTOR_DIR=".vectorstore"     # expects docmeta.jsonl + embeddings.npy
 
-# --- 0) Small IO adapter so you can plug this into CLI or your UI ---
-class InteractionIO:
-    """Default IO uses input()/print(). In your UI, override ask() to show prompts and collect user answers."""
-    def ask(self, question: str, field: str, hint: Optional[str] = None, required: bool = True) -> str:
-        msg = f"\n{question}\n"
-        if hint: msg += f"(hint: {hint})\n"
-        ans = input(msg + "> ").strip()
-        while required and not ans:
-            ans = input("(required) " + msg + "> ").strip()
-        return ans
+from __future__ import annotations
+import os, re, json, uuid, time, hashlib, difflib
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-# --- 1) Generate clarifying questions with the chat model (JSON only) ---
-def gen_clarifying_questions(user_request_text: str, max_q: int = 10) -> list[dict]:
-    system = "You ask concise, high-signal questions. Output strict JSON only."
-    user = f"""
-User wants to create a new document. Draft a compact questionnaire to collect
-the minimum viable info needed to author the first version and route for approval.
+import numpy as np
+import requests
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-Return JSON with this shape ONLY:
-{{
-  "questions": [
-    {{"id":"q1","field":"doc_type","question":"…","hint":"…","required":true}},
-    {{"id":"q2","field":"title","question":"…","hint":"…","required":true}},
-    {{"id":"q3","field":"purpose","question":"…","required":true}},
-    {{"id":"q4","field":"audience","question":"…","required":true}},
-    {{"id":"q5","field":"scope","question":"…","required":true}},
-    {{"id":"q6","field":"dependencies","question":"…","required":false}},
-    {{"id":"q7","field":"regulatory","question":"…","required":false}},
-    {{"id":"q8","field":"owner_team","question":"…","required":true}},
-    {{"id":"q9","field":"deadline","question":"…","required":false}},
-    {{"id":"q10","field":"languages","question":"…","hint":"e.g., ES, EN","required":false}}
-  ]
-}}
-Rules:
-- No prose outside JSON.
-- <= {max_q} questions.
-- Prefer closed or short-answer prompts.
-Context from user: "{user_request_text}"
-    """.strip()
+# -------------------------
+# Config
+# -------------------------
+UPLOAD_DIR  = Path(os.getenv("UPLOAD_DIR", "./uploads"))
+VECTOR_DIR  = Path(os.getenv("VECTOR_DIR", ".vectorstore"))
+META_PATH   = VECTOR_DIR / "docmeta.jsonl"   # [{id,name,path,sha256,embedding}]
+EMB_PATH    = VECTOR_DIR / "embeddings.npy"  # matrix [N, D] float32
 
-    raw = call_chat(
-        [{"role":"system","content":system},
-         {"role":"user","content":user}],
-        temperature=0.2, max_tokens=600
-    )
-    # Be tolerant to accidental markdown fences
-    raw = raw.strip()
-    raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
-    try:
-        data = json.loads(raw)
-        qs = data.get("questions") or []
-    except Exception:
-        # Safe fallback
-        qs = [
-            {"id":"q1","field":"doc_type","question":"¿Qué tipo de documento necesitas (política, proceso, guía, plantilla)?","required":True},
-            {"id":"q2","field":"title","question":"Título propuesto del documento","required":True},
-            {"id":"q3","field":"purpose","question":"¿Cuál es el objetivo principal?","required":True},
-            {"id":"q4","field":"audience","question":"¿Quiénes serán los lectores/usuarios?","required":True},
-            {"id":"q5","field":"scope","question":"Alcance (qué incluye y qué no)","required":True},
-            {"id":"q6","field":"dependencies","question":"Sistemas/Procesos relacionados o dependencias","required":False},
-            {"id":"q7","field":"regulatory","question":"Normativa/controles aplicables (si aplica)","required":False},
-            {"id":"q8","field":"owner_team","question":"Equipo/Área dueña del documento","required":True},
-            {"id":"q9","field":"deadline","question":"¿Fecha objetivo?","required":False},
-            {"id":"q10","field":"languages","question":"Idiomas requeridos (ES/EN)","required":False},
-        ]
-    # Ensure structure and bounds
-    cleaned = []
-    for q in qs[:max_q]:
-        cleaned.append({
-            "id":        str(q.get("id") or f"q{len(cleaned)+1}"),
-            "field":     str(q.get("field") or f"field_{len(cleaned)+1}"),
-            "question":  str(q.get("question") or "Provide value"),
-            "hint":      q.get("hint"),
-            "required":  bool(q.get("required", True))
+SECUREGPT_AUTH_URL         = os.getenv("SECUREGPT_AUTH_URL", "")
+SECUREGPT_SCOPE            = os.getenv("SECUREGPT_SCOPE", "")
+SECUREGPT_CLIENT_ID        = os.getenv("CLIENT_ID", "")
+SECUREGPT_CLIENT_SECRET    = os.getenv("CLIENT_SECRET", "")
+SECUREGPT_API_VERSION      = os.getenv("SECUREGPT_API_VERSION", "2024-10-21")
+
+SECUREGPT_PROXY_EMBED_URL  = os.getenv("SECUREGPT_PROXY_EMBED_URL", "")
+SECUREGPT_PROXY_CHAT_URL   = os.getenv("SECUREGPT_PROXY_CHAT_URL", "")
+SECUREGPT_EMBED_MODEL_URL  = os.getenv("SECUREGPT_EMBED_MODEL_URL", "")
+SECUREGPT_CHAT_MODEL_URL   = os.getenv("SECUREGPT_CHAT_MODEL_URL", "")
+
+REQUESTS_VERIFY_TLS        = os.getenv("REQUESTS_VERIFY_TLS", "false").lower() not in {"0","false","no"}
+
+# -------------------------
+# App & CORS
+# -------------------------
+app = FastAPI(title="CreateMode Service", version="1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # dev-friendly; tighten later
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+_session = requests.Session()
+
+def _common_headers() -> Dict[str, str]:
+    return {
+        "Content-Type": "application/json",
+        "sistema": "AXA",
+        "usuario": os.getenv("AXA_USER_ID", "MX000000000A"),
+        "UUID": str(uuid.uuid4()),
+        "fechaHora": time.strftime("%Y-%m-%dT%H:%M:%S-05:00"),
+    }
+
+def _get_auth_token() -> str:
+    assert SECUREGPT_AUTH_URL and SECUREGPT_CLIENT_ID and SECUREGPT_CLIENT_SECRET, \
+        "Missing AUTH_URL/CLIENT_ID/CLIENT_SECRET"
+    payload = {
+        "client_id": SECUREGPT_CLIENT_ID,
+        "client_secret": SECUREGPT_CLIENT_SECRET,
+        "scope": SECUREGPT_SCOPE,
+        "grant_type": "client_credentials",
+    }
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "usuario": os.getenv("AXA_USER_ID", "MX000000000A"),
+        "sistema": "AXA",
+        "UUID": str(uuid.uuid4()),
+        "fechaHora": time.strftime("%Y-%m-%dT%H:%M:%S-05:00"),
+    }
+    r = _session.post(SECUREGPT_AUTH_URL, data=payload, headers=headers, timeout=60, verify=REQUESTS_VERIFY_TLS)
+    r.raise_for_status()
+    return r.json()["access_token"]
+
+def call_chat(messages: List[Dict[str, Any]], temperature: float = 0.2, max_tokens: int = 600) -> str:
+    url = SECUREGPT_PROXY_CHAT_URL or SECUREGPT_CHAT_MODEL_URL
+    assert url, "Set SECUREGPT_PROXY_CHAT_URL or SECUREGPT_CHAT_MODEL_URL"
+    token = _get_auth_token()
+    payload = {
+        "api_version": SECUREGPT_API_VERSION,
+        "model_url": SECUREGPT_CHAT_MODEL_URL if SECUREGPT_PROXY_CHAT_URL else None,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": False
+    }
+    payload = {k:v for k,v in payload.items() if v is not None}
+    headers = _common_headers() | {"Authorization": f"Bearer {token}"}
+    r = _session.post(url, json=payload, headers=headers, timeout=120, verify=REQUESTS_VERIFY_TLS)
+    r.raise_for_status()
+    data = r.json()
+    content = data["choices"][0]["message"]["content"]
+    return content
+
+def call_embeddings(texts: List[str]) -> List[List[float]]:
+    url = SECUREGPT_PROXY_EMBED_URL or SECUREGPT_EMBED_MODEL_URL
+    assert url, "Set SECUREGPT_PROXY_EMBED_URL or SECUREGPT_EMBED_MODEL_URL"
+    token = _get_auth_token()
+    payload = {
+        "api_version": SECUREGPT_API_VERSION,
+        "model_url": SECUREGPT_EMBED_MODEL_URL if SECUREGPT_PROXY_EMBED_URL else None,
+        "input": texts,
+    }
+    payload = {k:v for k,v in payload.items() if v is not None}
+    headers = _common_headers() | {"Authorization": f"Bearer {token}"}
+    r = _session.post(url, json=payload, headers=headers, timeout=120, verify=REQUESTS_VERIFY_TLS)
+    r.raise_for_status()
+    data = r.json()
+    return [d["embedding"] for d in data["data"]]
+
+# -------------------------
+# Vector store helpers (document-level)
+# -------------------------
+def load_meta() -> List[Dict[str, Any]]:
+    if not META_PATH.exists(): return []
+    lines = META_PATH.read_text(encoding="utf-8").splitlines()
+    return [json.loads(l) for l in lines if l.strip()]
+
+def load_matrix() -> Optional[np.ndarray]:
+    return np.load(EMB_PATH) if EMB_PATH.exists() else None
+
+def cosine_search(query_text: str, top_k: int = 8) -> List[Dict[str, Any]]:
+    rows = load_meta()
+    mat  = load_matrix()
+    if not rows or mat is None or mat.size == 0:
+        return []  # nothing indexed
+    qv = np.array(call_embeddings([query_text])[0], dtype=np.float32)
+    A  = mat.astype(np.float32)
+
+    # cosine similarity
+    A /= (np.linalg.norm(A, axis=1, keepdims=True) + 1e-8)
+    q  = qv / (np.linalg.norm(qv) + 1e-8)
+    sims = A @ q
+    order = np.argsort(-sims)[:top_k]
+    out = []
+    for idx in order:
+        out.append({
+            "name": rows[idx]["name"],
+            "path": rows[idx]["path"],
+            "score": float(sims[idx])
         })
-    return cleaned
+    return out
 
-# --- 2) Ask user and collect answers ---
-def run_assessment(io: InteractionIO, questions: list[dict]) -> dict:
-    answers = {}
-    for q in questions:
-        ans = io.ask(q["question"], q["field"], q.get("hint"), q.get("required", True))
-        answers[q["field"]] = ans
-    return answers
+def fuzzy_title_hits(proposed_title: str, cutoff: float = 0.84) -> List[Dict[str, Any]]:
+    names = [os.path.basename(r["path"]) for r in load_meta()]
+    hits = []
+    for n in set(names):
+        s = difflib.SequenceMatcher(a=(proposed_title or "").lower(), b=n.lower()).ratio()
+        if s >= cutoff:
+            hits.append({"name": n, "score": float(s)})
+    return sorted(hits, key=lambda x: x["score"], reverse=True)
 
-# --- 3) Build a richer candidate description from answers (to re-check existence) ---
-def build_candidate_query(user_request_text: str, answers: dict) -> str:
+# -------------------------
+# Pydantic models
+# -------------------------
+class AssessmentIn(BaseModel):
+    user_request_text: str
+    max_q: int = 10
+
+class AssessmentOut(BaseModel):
+    questions: List[Dict[str, Any]]
+
+class VerifyIn(BaseModel):
+    user_request_text: str
+    answers: Dict[str, Any] = {}
+    threshold: float = 0.82
+    top_k: int = 8
+
+# -------------------------
+# Utilities for prompts
+# -------------------------
+def strip_code_fences(s: str) -> str:
+    return re.sub(r"^```(?:json)?|```$", "", s.strip(), flags=re.MULTILINE).strip()
+
+def build_candidate(user_text: str, answers: Dict[str, Any]) -> str:
     parts = [
-        user_request_text,
+        user_text,
         f"Tipo: {answers.get('doc_type','')}",
         f"Título: {answers.get('title','')}",
         f"Propósito: {answers.get('purpose','')}",
@@ -106,174 +211,112 @@ def build_candidate_query(user_request_text: str, answers: dict) -> str:
     ]
     return " | ".join([p for p in parts if p and p.strip()])
 
-# --- 4) Ask the model for synonyms/alternative titles to broaden the search ---
-def gen_alt_titles_and_keywords(user_request_text: str, answers: dict, k: int = 6) -> list[str]:
+def gen_alt_titles(user_text: str, answers: Dict[str, Any], k: int = 6) -> List[str]:
     prompt = f"""
 Given this creation intent:
-- request="{user_request_text}"
+- request="{user_text}"
 - title="{answers.get('title','')}"
 - doc_type="{answers.get('doc_type','')}"
 - purpose="{answers.get('purpose','')}"
-Generate up to {k} short alternative titles or keyword strings that a similar document might have
-(e.g., synonyms, legacy names, abbreviations). JSON only:
-{{"candidates": ["...", "..."]}}
+Generate up to {k} short alternative titles or keyword strings that a similar document might use.
+Return JSON only: {{"candidates": ["...", "..."]}}
 """.strip()
-    raw = call_chat(
-        [{"role":"system","content":"Return strict JSON only."},
-         {"role":"user","content":prompt}],
-        temperature=0.1, max_tokens=200
-    ).strip()
-    raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
     try:
-        data = json.loads(raw)
+        raw = call_chat(
+            [{"role":"system","content":"Return strict JSON only."},
+             {"role":"user","content":prompt}],
+            temperature=0.1, max_tokens=200
+        )
+        data = json.loads(strip_code_fences(raw))
         return [s for s in (data.get("candidates") or []) if isinstance(s, str)]
     except Exception:
         return []
 
-# --- 5) Shallow fuzzy check on file names (title vs existing doc names) ---
-def fuzzy_title_scan(proposed_title: str, existing_names: list[str], cutoff: float = 0.82) -> list[tuple[str,float]]:
-    if not proposed_title: return []
-    matches = []
-    for name in existing_names:
-        score = difflib.SequenceMatcher(a=proposed_title.lower(), b=name.lower()).ratio()
-        if score >= cutoff:
-            matches.append((name, score))
-    return sorted(matches, key=lambda x: x[1], reverse=True)
-
-# --- 6) Template recommendation + file naming (via chat) ---
-@dataclass
-class TemplateDecision:
-    proceed: bool
-    reason: str
-    recommended_template: Optional[str]
-    filename_suggestion: Optional[str]
-    sections: list[str]
-    metadata: dict
-
-def recommend_template_and_filename(answers: dict, evidence: dict) -> TemplateDecision:
-    """Asks the chat model to suggest the template and a safe file name."""
-    context = {
-        "answers": answers,
-        "evidence": evidence  # can include found matches from re-checks
-    }
-    system = "You output strict JSON only. Be concrete and brief."
+# -------------------------
+# Endpoints
+# -------------------------
+@app.post("/create/assessment", response_model=AssessmentOut)
+def create_assessment(body: AssessmentIn):
+    system = "You ask concise, high-signal questions. Output strict JSON only."
     user = f"""
-Decide the best template and a safe filename for a new document based on:
-{json.dumps(context, ensure_ascii=False)}
+User wants to create a new document. Draft a compact questionnaire to collect
+the minimum viable info to author v1 and route for approval.
 
-Return JSON only:
+Return JSON with this shape ONLY:
 {{
-  "proceed": true|false,
-  "reason": "short line",
-  "recommended_template": "Policy|Process|Guideline|Template|SOP|Other",
-  "filename_suggestion": "kebab-or-underscore-friendly-name-v1.0.docx",
-  "sections": ["Intro","Scope","Roles","Controls","Exceptions","References"],
-  "metadata": {{
-      "owner_team": "...",
-      "audience": "...",
-      "languages": ["ES","EN"],
-      "regulatory": "...",
-      "risk": "Low|Medium|High"
-  }}
+  "questions": [
+    {{"id":"q1","field":"doc_type","question":"…","hint":"…","required":true}},
+    {{"id":"q2","field":"title","question":"…","required":true}},
+    {{"id":"q3","field":"purpose","question":"…","required":true}},
+    {{"id":"q4","field":"audience","question":"…","required":true}},
+    {{"id":"q5","field":"scope","question":"…","required":true}},
+    {{"id":"q6","field":"dependencies","question":"…","required":false}},
+    {{"id":"q7","field":"regulatory","question":"…","required":false}},
+    {{"id":"q8","field":"owner_team","question":"…","required":true}},
+    {{"id":"q9","field":"deadline","question":"…","required":false}},
+    {{"id":"q10","field":"languages","question":"…","hint":"ES, EN","required":false}}
+  ]
 }}
 Rules:
-- If you think a near-duplicate exists, set proceed=false and explain briefly in reason.
-- Filename must be unique-friendly (no spaces, concise).
+- No prose outside JSON.
+- <= {body.max_q} questions.
+Context from user: "{body.user_request_text}"
 """.strip()
 
-    raw = call_chat(
-        [{"role":"system","content":system},
-         {"role":"user","content":user}],
-        temperature=0.2, max_tokens=500
-    ).strip()
-    raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
     try:
-        data = json.loads(raw)
+        raw = call_chat(
+            [{"role":"system","content":system},{"role":"user","content":user}],
+            temperature=0.2, max_tokens=600
+        )
+        data = json.loads(strip_code_fences(raw))
+        qs = data.get("questions") or []
     except Exception:
-        data = {
-            "proceed": True,
-            "reason": "default",
-            "recommended_template": answers.get("doc_type","Template"),
-            "filename_suggestion": "new-document-v1.0.docx",
-            "sections": ["Intro","Scope","Roles","Controls","Exceptions","References"],
-            "metadata": {
-                "owner_team": answers.get("owner_team",""),
-                "audience": answers.get("audience",""),
-                "languages": (answers.get("languages","") or "ES").split(","),
-                "regulatory": answers.get("regulatory",""),
-                "risk": "Medium"
-            }
-        }
-    return TemplateDecision(
-        proceed=bool(data.get("proceed", True)),
-        reason=str(data.get("reason","")),
-        recommended_template=data.get("recommended_template"),
-        filename_suggestion=data.get("filename_suggestion"),
-        sections=list(data.get("sections") or []),
-        metadata=dict(data.get("metadata") or {})
-    )
+        qs = [
+            {"id":"q1","field":"doc_type","question":"¿Qué tipo de documento necesitas (política, proceso, guía, plantilla)?","required":True},
+            {"id":"q2","field":"title","question":"Título propuesto del documento","required":True},
+            {"id":"q3","field":"purpose","question":"¿Cuál es el objetivo principal?","required":True},
+            {"id":"q4","field":"audience","question":"¿Quiénes serán los lectores/usuarios?","required":True},
+            {"id":"q5","field":"scope","question":"Alcance (qué incluye y qué no)","required":True},
+            {"id":"q6","field":"dependencies","question":"Sistemas/Procesos relacionados o dependencias","required":False},
+            {"id":"q7","field":"regulatory","question":"Normativa/controles aplicables (si aplica)","required":False},
+            {"id":"q8","field":"owner_team","question":"Equipo/Área dueña del documento","required":True},
+            {"id":"q9","field":"deadline","question":"¿Fecha objetivo?","required":False},
+            {"id":"q10","field":"languages","question":"Idiomas requeridos (ES/EN)","required":False},
+        ]
 
-# --- 7) Orchestrator: full interactive session when precheck found nothing ---
-def run_create_mode_session(
-    user_request_text: str,
-    io: InteractionIO | None = None,
-    strong_threshold: float = 0.82
-) -> dict:
-    """
-    Main entry for Create mode when precheck returned no strong matches.
-    Steps:
-      1) Ask clarifying questions (via SecureGPT) and collect answers
-      2) Rebuild a candidate description & broaden search with alt titles/keywords
-      3) Re-run existence checks (vector search + fuzzy filename)
-      4) Recommend template & filename; return a structured payload
-    """
-    io = io or InteractionIO()
+    # sanitize & cap
+    out = []
+    for i, q in enumerate(qs[: body.max_q], start=1):
+        out.append({
+            "id": str(q.get("id") or f"q{i}"),
+            "field": str(q.get("field") or f"field_{i}"),
+            "question": str(q.get("question") or "Provide value"),
+            "hint": q.get("hint"),
+            "required": bool(q.get("required", True)),
+        })
+    return {"questions": out}
 
-    # 1) Questions -> Answers
-    questions = gen_clarifying_questions(user_request_text)
-    answers   = run_assessment(io, questions)
+@app.post("/create/verify")
+def create_verify(body: VerifyIn):
+    candidate = build_candidate(body.user_request_text, body.answers)
+    alts = gen_alt_titles(body.user_request_text, body.answers, k=6)
 
-    # 2) Build richer query & alternatives
-    candidate = build_candidate_query(user_request_text, answers)
-    alts = gen_alt_titles_and_keywords(user_request_text, answers, k=6)
+    tried_qs = [candidate] + alts
+    vector_results = []
+    strong_any = False
 
-    # 3) Re-check existence (vector search with broadened queries)
-    all_hits = []
-    tried_queries = [candidate] + alts
-    for q in tried_queries:
-        res = create_mode_precheck(q, threshold=strong_threshold, top_k=5)
-        all_hits.append({"query": q, "strong": res["strong_matches"], "topk": res["topk"]})
+    for q in tried_qs:
+        hits = cosine_search(q, top_k=body.top_k)  # doc-level
+        strong = [h for h in hits if h["score"] >= body.threshold]
+        if strong: strong_any = True
+        vector_results.append({"query": q, "topk_docs": hits, "strong": strong})
 
-    # Also fuzzy-scan titles vs current filenames (only names from first pass is ok)
-    meta_rows = load_meta()
-    existing_names = [r["name"] for r in meta_rows]
-    fuzzy_hits = fuzzy_title_scan(answers.get("title",""), existing_names, cutoff=0.84)
+    fuzzy = fuzzy_title_hits(body.answers.get("title", ""), cutoff=0.84)
+    status = "duplicate_suspected" if strong_any or len(fuzzy) > 0 else "clear_to_create"
 
-    evidence = {
-        "tried_queries": tried_queries,
-        "vector_hits": all_hits,
-        "fuzzy_title_hits": [{"name": n, "score": s} for (n,s) in fuzzy_hits]
+    return {
+        "status": status,
+        "tried_queries": tried_qs,
+        "vector_results": vector_results,
+        "fuzzy_title_hits": fuzzy
     }
-
-    # If any strong vector match surfaced now, flag it
-    any_strong = any((block["strong"] for block in all_hits if block["strong"]))
-
-    # 4) Template recommendation
-    decision = recommend_template_and_filename(answers, evidence)
-
-    payload = {
-        "request": user_request_text,
-        "answers": answers,
-        "evidence": evidence,
-        "decision": asdict(decision),
-        "status": "duplicate_suspected" if any_strong or not decision.proceed else "proceed_new_doc"
-    }
-    return payload
-
-# --- 8) Quick example (CLI) ---
-if __name__ == "__main__":
-    # Simulate the branch when precheck returned nothing:
-    user_intent = "Quiero crear una nueva Política de Uso de IA para proveedores externos"
-    result = run_create_mode_session(user_intent)
-    print("\n=== SESSION RESULT ===")
-    print(json.dumps(result, ensure_ascii=False, indent=2))
