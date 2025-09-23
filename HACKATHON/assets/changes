@@ -1,7 +1,5 @@
-$env:SECUREGPT_CLIENT_ID="YOUR_CLIENT_ID"
-$env:SECUREGPT_CLIENT_SECRET="YOUR_CLIENT_SECRET"
-$env:SECUREGPT_URL_TOKEN="https://onelogin.stg.axa.com/as/token.oauth2"
-$env:SECUREGPT_SCOPE="urn:grp:chatgpt"       # matches your code default
-# Optional request headers if your gateway expects them:
-$env:SECUREGPT_HEADER_USUARIO="MXS00000000A"
-$env:SECUREGPT_HEADER_SISTEMAID="AXA"
+# trigger (re)index
+Invoke-WebRequest -Uri http://127.0.0.1:8000/rag/reindex -Method POST | Select-Object -Expand Content
+
+# optional: sanity check
+Invoke-WebRequest -Uri http://127.0.0.1:8000/health -Method GET | Select-Object -Expand Content
