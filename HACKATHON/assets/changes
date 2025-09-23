@@ -2,3 +2,6 @@ curl -sS -X POST http://127.0.0.1:3001/securegpt/embeddings ^
   -H "Content-Type: application/json" ^
   -d "{\"api_version\":\"$env:SECUREGPT_EMBED_API_VERSION\",\"model_url\":\"$env:SECUREGPT_EMBED_MODEL_URL?api-version=$env:SECUREGPT_EMBED_API_VERSION\",\"input\":[\"ping\"]}"
 $env:SECUREGPT_EMBED_API_VERSION = "2025-01-01-preview"
+curl -sS -X POST http://127.0.0.1:3001/securegpt/embeddings ^
+  -H "Content-Type: application/json" ^
+  -d "{\"api_version\":\"%SECUREGPT_API_VERSION%\",\"model_url\":\"%SECUREGPT_EMBED_MODEL_URL%\",\"input\":[\"ping\"]}"
