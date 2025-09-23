@@ -1,1 +1,59 @@
-curl.exe -sS -H "Content-Type: application/json" --data-binary "@payload.json" http://127.0.0.1:3001/securegpt/embeddings
+// server.cjs
+
+// ... your other require statements like express, cors, etc.
+
+// ===================================================================
+// --- START: PASTE THE NEW FUNCTION HERE ---
+// This function gets an access token from the Microsoft identity platform
+async function getAccessToken() {
+  console.log('Attempting to get new access token from Microsoft Entra...');
+
+  // 1. Define your credentials from the Python script
+  // IMPORTANT: You must get the full, unobscured values from your coworkers.
+  const clientId = "ago-m355-securegpt-dev-vrs";
+  const clientSecret = "YOUR_FULL_CLIENT_SECRET_HERE"; // <--- PASTE FULL SECRET
+  const tenantId = "YOUR_TENANT_ID_HERE"; // <--- PASTE FULL TENANT ID FROM URL
+  const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+  const scope = "https://api-int.se.axa-go.applications.services.axa-tech.intraxa/.default";
+
+  // 2. Prepare the request body (form-urlencoded)
+  const body = new URLSearchParams();
+  body.append('grant_type', 'client_credentials');
+  body.append('client_id', clientId);
+  body.append('client_secret', clientSecret);
+  body.append('scope', scope);
+
+  try {
+    // 3. Make the POST request to the token endpoint
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: body.toString()
+    });
+
+    // 4. Check for errors and parse the response
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error('Error response from token endpoint:', errorBody);
+      throw new Error(`Failed to retrieve access token. Status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // 5. Return the access token
+    console.log('Successfully retrieved new access token.');
+    return data.access_token;
+
+  } catch (error) {
+    console.error('A network or other error occurred in getAccessToken:', error);
+    throw error; // Propagate the error to stop the request
+  }
+}
+// --- END: OF THE NEW FUNCTION ---
+// ===================================================================
+
+
+const app = express();
+// ... rest of your server code
