@@ -12,3 +12,5 @@ Set-Content -Encoding ascii -NoNewline -Path .\payload.json -Value '{
 # C) Verify the file exists and is readable
 Get-Item .\payload.json
 Get-Content .\payload.json
+
+curl.exe -sS -H "Content-Type: application/json" --data-binary "@.\payload.json" http://127.0.0.1:3001/securegpt/embeddings
