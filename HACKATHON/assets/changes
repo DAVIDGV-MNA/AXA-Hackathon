@@ -1,342 +1,279 @@
-"""
-Create-mode Precheck for RAG
-- Scans ./uploads
-- Embeds with SecureGPT (proxy or direct)
-- Maintains .vectorstore (docmeta.jsonl + embeddings.npy)
-- Finds similar existing docs/templates
+# =========================
+# Interactive Assessment & Verification (Create Mode)
+# =========================
+from dataclasses import dataclass, asdict
+from typing import Optional
+import difflib, json, re, numpy as np
 
-Env vars you should set (examples):
-  SECUREGPT_AUTH_URL="https://onelogin.stg.axa.com/ss/token.oauth2"
-  SECUREGPT_SCOPE="urn:prch:prchtpt"
-  CLIENT_ID="xxx"
-  CLIENT_SECRET="xxx"
-  SECUREGPT_API_VERSION="2024-10-21"
+# --- 0) Small IO adapter so you can plug this into CLI or your UI ---
+class InteractionIO:
+    """Default IO uses input()/print(). In your UI, override ask() to show prompts and collect user answers."""
+    def ask(self, question: str, field: str, hint: Optional[str] = None, required: bool = True) -> str:
+        msg = f"\n{question}\n"
+        if hint: msg += f"(hint: {hint})\n"
+        ans = input(msg + "> ").strip()
+        while required and not ans:
+            ans = input("(required) " + msg + "> ").strip()
+        return ans
 
-  # Choose PROXY or DIRECT (proxy preferred if you already run 127.0.0.1:3001)
-  SECUREGPT_PROXY_EMBED_URL="http://127.0.0.1:3001/securegpt/embeddings"
-  SECUREGPT_PROXY_CHAT_URL="http://127.0.0.1:3001/securegpt/chat"
-  # (only needed if you skip proxy)
-  SECUREGPT_EMBED_MODEL_URL="https://api-int.../deployments/ada-search-index-v1/embeddings"
-  SECUREGPT_CHAT_MODEL_URL="https://api-int.../deployments/gpt-4o-.../chat/completions"
+# --- 1) Generate clarifying questions with the chat model (JSON only) ---
+def gen_clarifying_questions(user_request_text: str, max_q: int = 10) -> list[dict]:
+    system = "You ask concise, high-signal questions. Output strict JSON only."
+    user = f"""
+User wants to create a new document. Draft a compact questionnaire to collect
+the minimum viable info needed to author the first version and route for approval.
 
-  # Optional:
-  REQUESTS_VERIFY_TLS=false   # set to false if corp TLS breaks
-  AXA_USER_ID="MX000000000A"  # whatever your gateway expects
-"""
+Return JSON with this shape ONLY:
+{{
+  "questions": [
+    {{"id":"q1","field":"doc_type","question":"…","hint":"…","required":true}},
+    {{"id":"q2","field":"title","question":"…","hint":"…","required":true}},
+    {{"id":"q3","field":"purpose","question":"…","required":true}},
+    {{"id":"q4","field":"audience","question":"…","required":true}},
+    {{"id":"q5","field":"scope","question":"…","required":true}},
+    {{"id":"q6","field":"dependencies","question":"…","required":false}},
+    {{"id":"q7","field":"regulatory","question":"…","required":false}},
+    {{"id":"q8","field":"owner_team","question":"…","required":true}},
+    {{"id":"q9","field":"deadline","question":"…","required":false}},
+    {{"id":"q10","field":"languages","question":"…","hint":"e.g., ES, EN","required":false}}
+  ]
+}}
+Rules:
+- No prose outside JSON.
+- <= {max_q} questions.
+- Prefer closed or short-answer prompts.
+Context from user: "{user_request_text}"
+    """.strip()
 
-from __future__ import annotations
-import os, uuid, time, json, hashlib, re
-from pathlib import Path
-from typing import Dict, List, Any, Tuple
-
-import numpy as np
-import requests
-
-# ------------------------------
-# 1) Configuration
-# ------------------------------
-UPLOAD_DIR = Path("./uploads")
-STORE_DIR  = Path(".vectorstore")
-STORE_DIR.mkdir(parents=True, exist_ok=True)
-
-SECUREGPT_AUTH_URL         = os.getenv("SECUREGPT_AUTH_URL", "")
-SECUREGPT_SCOPE            = os.getenv("SECUREGPT_SCOPE", "")
-SECUREGPT_CLIENT_ID        = os.getenv("CLIENT_ID", "")
-SECUREGPT_CLIENT_SECRET    = os.getenv("CLIENT_SECRET", "")
-SECUREGPT_API_VERSION      = os.getenv("SECUREGPT_API_VERSION", "2024-10-21")
-
-# If you set proxy URLs, we POST there and (optionally) include model_url inside payload.
-SECUREGPT_PROXY_EMBED_URL  = os.getenv("SECUREGPT_PROXY_EMBED_URL", "")
-SECUREGPT_PROXY_CHAT_URL   = os.getenv("SECUREGPT_PROXY_CHAT_URL", "")
-
-# If you bypass proxy, set the direct model URLs:
-SECUREGPT_EMBED_MODEL_URL  = os.getenv("SECUREGPT_EMBED_MODEL_URL", "")
-SECUREGPT_CHAT_MODEL_URL   = os.getenv("SECUREGPT_CHAT_MODEL_URL", "")
-
-REQUESTS_VERIFY_TLS        = os.getenv("REQUESTS_VERIFY_TLS", "false").lower() not in {"0","false","no"}
-
-# ------------------------------
-# 2) Auth & HTTP helpers
-# ------------------------------
-_session = requests.Session()
-
-def _common_headers() -> Dict[str, str]:
-    return {
-        "Content-Type": "application/json",
-        "sistema": "AXA",
-        "usuario": os.getenv("AXA_USER_ID", "MX000000000A"),
-        "UUID": str(uuid.uuid4()),
-        "fechaHora": time.strftime("%Y-%m-%dT%H:%M:%S-05:00"),
-    }
-
-def get_auth_token() -> str:
-    assert SECUREGPT_AUTH_URL and SECUREGPT_CLIENT_ID and SECUREGPT_CLIENT_SECRET, \
-        "Missing AUTH_URL/CLIENT_ID/CLIENT_SECRET env vars"
-
-    payload = {
-        "client_id": SECUREGPT_CLIENT_ID,
-        "client_secret": SECUREGPT_CLIENT_SECRET,
-        "scope": SECUREGPT_SCOPE,
-        "grant_type": "client_credentials",
-    }
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "usuario": os.getenv("AXA_USER_ID", "MX000000000A"),
-        "sistema": "AXA",
-        "UUID": str(uuid.uuid4()),
-        "fechaHora": time.strftime("%Y-%m-%dT%H:%M:%S-05:00"),
-    }
-    r = _session.post(SECUREGPT_AUTH_URL, data=payload, headers=headers, timeout=60, verify=REQUESTS_VERIFY_TLS)
-    r.raise_for_status()
-    return r.json()["access_token"]
-
-def call_embeddings(texts: List[str]) -> List[List[float]]:
-    """Call SecureGPT embeddings (proxy preferred)."""
-    url = SECUREGPT_PROXY_EMBED_URL or SECUREGPT_EMBED_MODEL_URL
-    assert url, "Set SECUREGPT_PROXY_EMBED_URL or SECUREGPT_EMBED_MODEL_URL"
-
-    token = get_auth_token()
-    payload = {
-        "api_version": SECUREGPT_API_VERSION,
-        # If using proxy, forward the real model_url so proxy knows where to route (if your proxy expects it).
-        "model_url": SECUREGPT_EMBED_MODEL_URL if SECUREGPT_PROXY_EMBED_URL else None,
-        "input": texts,
-    }
-    payload = {k: v for k, v in payload.items() if v is not None}
-
-    headers = _common_headers() | {"Authorization": f"Bearer {token}"}
-    r = _session.post(url, json=payload, headers=headers, timeout=120, verify=REQUESTS_VERIFY_TLS)
-    r.raise_for_status()
-    data = r.json()
-    # Expecting OpenAI-like: {"data": [{"embedding": [...]}]}
-    return [d["embedding"] for d in data["data"]]
-
-def call_chat(messages: List[Dict[str, Any]], temperature: float = 0.2, max_tokens: int = 256) -> str:
-    """Minimal chat call."""
-    url = SECUREGPT_PROXY_CHAT_URL or SECUREGPT_CHAT_MODEL_URL
-    assert url, "Set SECUREGPT_PROXY_CHAT_URL or SECUREGPT_CHAT_MODEL_URL"
-
-    token = get_auth_token()
-    payload = {
-        "api_version": SECUREGPT_API_VERSION,
-        "model_url": SECUREGPT_CHAT_MODEL_URL if SECUREGPT_PROXY_CHAT_URL else None,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "stream": False,
-    }
-    payload = {k: v for k, v in payload.items() if v is not None}
-
-    headers = _common_headers() | {"Authorization": f"Bearer {token}"}
-    r = _session.post(url, json=payload, headers=headers, timeout=120, verify=REQUESTS_VERIFY_TLS)
-    r.raise_for_status()
-    data = r.json()
-    if "choices" in data and data["choices"]:
-        return data["choices"][0]["message"]["content"]
-    return data.get("content") or str(data)
-
-# ------------------------------
-# 3) File loaders (pdf/docx/txt)
-# ------------------------------
-def read_txt(path: Path) -> str:
-    import chardet
-    raw = path.read_bytes()
-    enc = (chardet.detect(raw).get("encoding") or "utf-8")
+    raw = call_chat(
+        [{"role":"system","content":system},
+         {"role":"user","content":user}],
+        temperature=0.2, max_tokens=600
+    )
+    # Be tolerant to accidental markdown fences
+    raw = raw.strip()
+    raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
     try:
-        return raw.decode(enc, errors="ignore")
+        data = json.loads(raw)
+        qs = data.get("questions") or []
     except Exception:
-        return raw.decode("utf-8", errors="ignore")
-
-def read_pdf(path: Path) -> str:
-    from pypdf import PdfReader
-    try:
-        reader = PdfReader(str(path))
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
-    except Exception as e:
-        print(f"[WARN] PDF read failed for {path.name}: {e}")
-        return ""
-
-def read_docx(path: Path) -> str:
-    import docx
-    try:
-        doc = docx.Document(str(path))
-        return "\n".join(p.text for p in doc.paragraphs)
-    except Exception as e:
-        print(f"[WARN] DOCX read failed for {path.name}: {e}")
-        return ""
-
-def load_file_text(path: Path) -> Tuple[str, str]:
-    ext = path.suffix.lower()
-    if ext == ".txt":  return path.name, read_txt(path)
-    if ext == ".pdf":  return path.name, read_pdf(path)
-    if ext == ".docx": return path.name, read_docx(path)
-    try:
-        return path.name, path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return path.name, ""
-
-# ------------------------------
-# 4) Chunking & document vector
-# ------------------------------
-def simple_chunk(text: str, max_chars: int = 1200, overlap: int = 150) -> List[str]:
-    text = re.sub(r"\s+", " ", text).strip()
-    if not text: return []
-    out, i = [], 0
-    step = max(1, max_chars - overlap)
-    while i < len(text):
-        out.append(text[i:i+max_chars])
-        i += step
-    return out
-
-def doc_embedding(text: str) -> List[float]:
-    chunks = simple_chunk(text)
-    if not chunks: return []
-    vecs = call_embeddings(chunks)  # list of [d]
-    return (np.array(vecs).mean(axis=0)).tolist()
-
-# ------------------------------
-# 5) Vector store files
-# ------------------------------
-META_PATH = STORE_DIR / "docmeta.jsonl"
-EMB_PATH  = STORE_DIR / "embeddings.npy"
-
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""): h.update(chunk)
-    return h.hexdigest()
-
-def load_meta() -> List[Dict[str, Any]]:
-    if not META_PATH.exists(): return []
-    lines = META_PATH.read_text(encoding="utf-8").splitlines()
-    return [json.loads(l) for l in lines if l.strip()]
-
-def save_meta(rows: List[Dict[str, Any]]):
-    with open(META_PATH, "w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-
-def rebuild_emb_matrix(rows: List[Dict[str, Any]]) -> np.ndarray | None:
-    if not rows:
-        if EMB_PATH.exists(): EMB_PATH.unlink()
-        return None
-    mat = np.array([r["embedding"] for r in rows], dtype=np.float32)
-    np.save(EMB_PATH, mat)
-    return mat
-
-def load_emb_matrix() -> np.ndarray | None:
-    return np.load(EMB_PATH) if EMB_PATH.exists() else None
-
-# ------------------------------
-# 6) Index bootstrap/refresh
-# ------------------------------
-def bootstrap_index() -> None:
-    rows = load_meta()
-    known = {r["sha256"]: r for r in rows}
-    added = 0
-
-    for path in sorted(UPLOAD_DIR.glob("**/*")):
-        if not path.is_file(): 
-            continue
-        digest = sha256_file(path)
-        if digest in known:
-            continue  # already indexed
-        name, text = load_file_text(path)
-        if not text.strip():
-            continue
-        emb = doc_embedding(text)
-        if not emb:
-            continue
-        rows.append({
-            "id": str(uuid.uuid4()),
-            "name": name,
-            "path": str(path),
-            "sha256": digest,
-            "embedding": emb,
+        # Safe fallback
+        qs = [
+            {"id":"q1","field":"doc_type","question":"¿Qué tipo de documento necesitas (política, proceso, guía, plantilla)?","required":True},
+            {"id":"q2","field":"title","question":"Título propuesto del documento","required":True},
+            {"id":"q3","field":"purpose","question":"¿Cuál es el objetivo principal?","required":True},
+            {"id":"q4","field":"audience","question":"¿Quiénes serán los lectores/usuarios?","required":True},
+            {"id":"q5","field":"scope","question":"Alcance (qué incluye y qué no)","required":True},
+            {"id":"q6","field":"dependencies","question":"Sistemas/Procesos relacionados o dependencias","required":False},
+            {"id":"q7","field":"regulatory","question":"Normativa/controles aplicables (si aplica)","required":False},
+            {"id":"q8","field":"owner_team","question":"Equipo/Área dueña del documento","required":True},
+            {"id":"q9","field":"deadline","question":"¿Fecha objetivo?","required":False},
+            {"id":"q10","field":"languages","question":"Idiomas requeridos (ES/EN)","required":False},
+        ]
+    # Ensure structure and bounds
+    cleaned = []
+    for q in qs[:max_q]:
+        cleaned.append({
+            "id":        str(q.get("id") or f"q{len(cleaned)+1}"),
+            "field":     str(q.get("field") or f"field_{len(cleaned)+1}"),
+            "question":  str(q.get("question") or "Provide value"),
+            "hint":      q.get("hint"),
+            "required":  bool(q.get("required", True))
         })
-        added += 1
+    return cleaned
 
-    save_meta(rows)
-    rebuild_emb_matrix(rows)
-    print(f"[index] Added={added}, Total={len(rows)}")
+# --- 2) Ask user and collect answers ---
+def run_assessment(io: InteractionIO, questions: list[dict]) -> dict:
+    answers = {}
+    for q in questions:
+        ans = io.ask(q["question"], q["field"], q.get("hint"), q.get("required", True))
+        answers[q["field"]] = ans
+    return answers
 
-# ------------------------------
-# 7) Similarity search (cosine)
-# ------------------------------
-def _cosine_sim(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    a = a.astype(np.float32); b = b.astype(np.float32)
-    a /= (np.linalg.norm(a, axis=1, keepdims=True) + 1e-8)
-    b /= (np.linalg.norm(b, axis=1, keepdims=True) + 1e-8)
-    return a @ b.T
+# --- 3) Build a richer candidate description from answers (to re-check existence) ---
+def build_candidate_query(user_request_text: str, answers: dict) -> str:
+    parts = [
+        user_request_text,
+        f"Tipo: {answers.get('doc_type','')}",
+        f"Título: {answers.get('title','')}",
+        f"Propósito: {answers.get('purpose','')}",
+        f"Audiencia: {answers.get('audience','')}",
+        f"Alcance: {answers.get('scope','')}",
+        f"Dependencias: {answers.get('dependencies','')}",
+        f"Normativa: {answers.get('regulatory','')}",
+        f"Owner: {answers.get('owner_team','')}",
+        f"Idiomas: {answers.get('languages','')}",
+    ]
+    return " | ".join([p for p in parts if p and p.strip()])
 
-def find_similar(candidate_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
-    rows = load_meta()
-    if not rows:
-        return []
-    mat = load_emb_matrix() or rebuild_emb_matrix(rows)
-    q  = np.array([doc_embedding(candidate_text)], dtype=np.float32)
-    sims = _cosine_sim(mat, q).reshape(-1)
-    order = sims.argsort()[::-1][:top_k]
-    return [{"score": float(sims[i]), "name": rows[i]["name"], "path": rows[i]["path"]} for i in order]
-
-# ------------------------------
-# 8) Create-mode precheck (public entry)
-# ------------------------------
-def create_mode_precheck(user_request_text: str, threshold: float = 0.82, top_k: int = 8) -> Dict[str, Any]:
-    """
-    1) Refresh index from ./uploads
-    2) Retrieve top_k similar docs
-    3) Return those >= threshold plus full top_k list
-    """
-    bootstrap_index()
-    hits = find_similar(user_request_text, top_k=top_k)
-    strong = [h for h in hits if h["score"] >= threshold]
-    return {"strong_matches": strong, "topk": hits}
-
-# ------------------------------
-# 9) (Optional) Chat summary for UI
-# ------------------------------
-def summarize_matches(user_request_text: str, matches: List[Dict[str, Any]]) -> str:
-    bullets = "\n".join([f"- {m['name']} (sim={m['score']:.2f})" for m in matches])
+# --- 4) Ask the model for synonyms/alternative titles to broaden the search ---
+def gen_alt_titles_and_keywords(user_request_text: str, answers: dict, k: int = 6) -> list[str]:
     prompt = f"""
-Act as an assistant that helps select document templates.
-User request: {user_request_text}
-Similar assets:
-{bullets}
-
-Briefly tell the user which existing templates look relevant and any potential conflicts.
+Given this creation intent:
+- request="{user_request_text}"
+- title="{answers.get('title','')}"
+- doc_type="{answers.get('doc_type','')}"
+- purpose="{answers.get('purpose','')}"
+Generate up to {k} short alternative titles or keyword strings that a similar document might have
+(e.g., synonyms, legacy names, abbreviations). JSON only:
+{{"candidates": ["...", "..."]}}
 """.strip()
-    return call_chat(
-        [{"role":"system","content":"Be concise and pragmatic."},
+    raw = call_chat(
+        [{"role":"system","content":"Return strict JSON only."},
          {"role":"user","content":prompt}],
-        temperature=0.2,
-        max_tokens=250,
+        temperature=0.1, max_tokens=200
+    ).strip()
+    raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
+    try:
+        data = json.loads(raw)
+        return [s for s in (data.get("candidates") or []) if isinstance(s, str)]
+    except Exception:
+        return []
+
+# --- 5) Shallow fuzzy check on file names (title vs existing doc names) ---
+def fuzzy_title_scan(proposed_title: str, existing_names: list[str], cutoff: float = 0.82) -> list[tuple[str,float]]:
+    if not proposed_title: return []
+    matches = []
+    for name in existing_names:
+        score = difflib.SequenceMatcher(a=proposed_title.lower(), b=name.lower()).ratio()
+        if score >= cutoff:
+            matches.append((name, score))
+    return sorted(matches, key=lambda x: x[1], reverse=True)
+
+# --- 6) Template recommendation + file naming (via chat) ---
+@dataclass
+class TemplateDecision:
+    proceed: bool
+    reason: str
+    recommended_template: Optional[str]
+    filename_suggestion: Optional[str]
+    sections: list[str]
+    metadata: dict
+
+def recommend_template_and_filename(answers: dict, evidence: dict) -> TemplateDecision:
+    """Asks the chat model to suggest the template and a safe file name."""
+    context = {
+        "answers": answers,
+        "evidence": evidence  # can include found matches from re-checks
+    }
+    system = "You output strict JSON only. Be concrete and brief."
+    user = f"""
+Decide the best template and a safe filename for a new document based on:
+{json.dumps(context, ensure_ascii=False)}
+
+Return JSON only:
+{{
+  "proceed": true|false,
+  "reason": "short line",
+  "recommended_template": "Policy|Process|Guideline|Template|SOP|Other",
+  "filename_suggestion": "kebab-or-underscore-friendly-name-v1.0.docx",
+  "sections": ["Intro","Scope","Roles","Controls","Exceptions","References"],
+  "metadata": {{
+      "owner_team": "...",
+      "audience": "...",
+      "languages": ["ES","EN"],
+      "regulatory": "...",
+      "risk": "Low|Medium|High"
+  }}
+}}
+Rules:
+- If you think a near-duplicate exists, set proceed=false and explain briefly in reason.
+- Filename must be unique-friendly (no spaces, concise).
+""".strip()
+
+    raw = call_chat(
+        [{"role":"system","content":system},
+         {"role":"user","content":user}],
+        temperature=0.2, max_tokens=500
+    ).strip()
+    raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
+    try:
+        data = json.loads(raw)
+    except Exception:
+        data = {
+            "proceed": True,
+            "reason": "default",
+            "recommended_template": answers.get("doc_type","Template"),
+            "filename_suggestion": "new-document-v1.0.docx",
+            "sections": ["Intro","Scope","Roles","Controls","Exceptions","References"],
+            "metadata": {
+                "owner_team": answers.get("owner_team",""),
+                "audience": answers.get("audience",""),
+                "languages": (answers.get("languages","") or "ES").split(","),
+                "regulatory": answers.get("regulatory",""),
+                "risk": "Medium"
+            }
+        }
+    return TemplateDecision(
+        proceed=bool(data.get("proceed", True)),
+        reason=str(data.get("reason","")),
+        recommended_template=data.get("recommended_template"),
+        filename_suggestion=data.get("filename_suggestion"),
+        sections=list(data.get("sections") or []),
+        metadata=dict(data.get("metadata") or {})
     )
 
-# ------------------------------
-# 10) Smoke tests you can run in Jupyter
-# ------------------------------
+# --- 7) Orchestrator: full interactive session when precheck found nothing ---
+def run_create_mode_session(
+    user_request_text: str,
+    io: InteractionIO | None = None,
+    strong_threshold: float = 0.82
+) -> dict:
+    """
+    Main entry for Create mode when precheck returned no strong matches.
+    Steps:
+      1) Ask clarifying questions (via SecureGPT) and collect answers
+      2) Rebuild a candidate description & broaden search with alt titles/keywords
+      3) Re-run existence checks (vector search + fuzzy filename)
+      4) Recommend template & filename; return a structured payload
+    """
+    io = io or InteractionIO()
+
+    # 1) Questions -> Answers
+    questions = gen_clarifying_questions(user_request_text)
+    answers   = run_assessment(io, questions)
+
+    # 2) Build richer query & alternatives
+    candidate = build_candidate_query(user_request_text, answers)
+    alts = gen_alt_titles_and_keywords(user_request_text, answers, k=6)
+
+    # 3) Re-check existence (vector search with broadened queries)
+    all_hits = []
+    tried_queries = [candidate] + alts
+    for q in tried_queries:
+        res = create_mode_precheck(q, threshold=strong_threshold, top_k=5)
+        all_hits.append({"query": q, "strong": res["strong_matches"], "topk": res["topk"]})
+
+    # Also fuzzy-scan titles vs current filenames (only names from first pass is ok)
+    meta_rows = load_meta()
+    existing_names = [r["name"] for r in meta_rows]
+    fuzzy_hits = fuzzy_title_scan(answers.get("title",""), existing_names, cutoff=0.84)
+
+    evidence = {
+        "tried_queries": tried_queries,
+        "vector_hits": all_hits,
+        "fuzzy_title_hits": [{"name": n, "score": s} for (n,s) in fuzzy_hits]
+    }
+
+    # If any strong vector match surfaced now, flag it
+    any_strong = any((block["strong"] for block in all_hits if block["strong"]))
+
+    # 4) Template recommendation
+    decision = recommend_template_and_filename(answers, evidence)
+
+    payload = {
+        "request": user_request_text,
+        "answers": answers,
+        "evidence": evidence,
+        "decision": asdict(decision),
+        "status": "duplicate_suspected" if any_strong or not decision.proceed else "proceed_new_doc"
+    }
+    return payload
+
+# --- 8) Quick example (CLI) ---
 if __name__ == "__main__":
-    # Connectivity check
-    try:
-        pong = call_chat(
-            [{"role":"system","content":"Reply with 'pong'."},
-             {"role":"user","content":"ping"}],
-            max_tokens=5
-        )
-        print("Chat OK ->", pong)
-    except Exception as e:
-        print("Chat FAILED:", e)
-
-    try:
-        emb = call_embeddings(["ping"])
-        print("Embeddings OK -> dim:", len(emb[0]))
-    except Exception as e:
-        print("Embeddings FAILED:", e)
-
-    # Create-mode precheck demo
-    query = "Necesito una plantilla de Política de Uso de IA Generativa"
-    result = create_mode_precheck(query, threshold=0.80, top_k=5)
-    print("Strong matches:", result["strong_matches"])
-    print("TopK:", result["topk"])
-    # print(summarize_matches(query, result["topk"]))
+    # Simulate the branch when precheck returned nothing:
+    user_intent = "Quiero crear una nueva Política de Uso de IA para proveedores externos"
+    result = run_create_mode_session(user_intent)
+    print("\n=== SESSION RESULT ===")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
