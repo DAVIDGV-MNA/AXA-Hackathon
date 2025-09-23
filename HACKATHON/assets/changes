@@ -1,5 +1,2 @@
-# trigger (re)index
-Invoke-WebRequest -Uri http://127.0.0.1:8000/rag/reindex -Method POST | Select-Object -Expand Content
-
-# optional: sanity check
-Invoke-WebRequest -Uri http://127.0.0.1:8000/health -Method GET | Select-Object -Expand Content
+Invoke-WebRequest -Uri http://127.0.0.1:3001/securegpt/token -Method POST |
+  Select-Object -ExpandProperty Content
