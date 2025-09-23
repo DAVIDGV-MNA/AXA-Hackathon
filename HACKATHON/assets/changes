@@ -35,3 +35,13 @@ app.post('/securegpt/embeddings', async (req, res) => {
     res.status(500).json({ error: String(e?.message || e) });
   }
 });
+app.use((req, res, next) => {
+  if (req.url.startsWith('/securegpt/embeddings')) {
+    console.log('[embeddings] content-type:', req.headers['content-type']);
+    console.log('[embeddings] typeof req.body:', typeof req.body);
+    console.log('[embeddings] preview:', typeof req.body === 'string'
+      ? req.body.slice(0, 200)
+      : req.body);
+  }
+  next();
+});
