@@ -1,9 +1,2 @@
-$body = @{
-  api_version = "2025-01-01-preview"      # or the exact version your gateway needs
-  model_url   = "https://<your-securegpt-host>/.../deployments/ada-search-index-v1/embeddings"
-  input       = @("ping")
-} | ConvertTo-Json
-
-Invoke-WebRequest -Uri http://127.0.0.1:3001/securegpt/embeddings `
-  -Method POST -ContentType 'application/json' -Body $body `
-  | Select-Object -ExpandProperty Content
+Invoke-WebRequest -Uri http://127.0.0.1:3001/securegpt/token -Method POST `
+  -ContentType 'application/json' | Select-Object -ExpandProperty Content
