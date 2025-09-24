@@ -1,18 +1,6 @@
-+def cosine_search(query_text: str, top_k: int = 8) -> List[Dict[str, Any]]:
-+    """Always use the RAG FAISS index (single source of truth)."""
-+    r = _session.post(
-+        f"{RAG_BASE_URL}/rag/query",
-+        json={"query": query_text, "history": [], "top_k": top_k},
-+        timeout=60,
-+        verify=False
-+    )
-+    r.raise_for_status()
-+    data = r.json()
-+    out = []
-+    for s in data.get("sources", []):
-+        out.append({
-+            "name": os.path.basename(s.get("path","")),
-+            "path": s.get("path",""),
-+            "score": float(s.get("score", 0.0))
-+        })
-+    return out
+def fuzzy_title_hits(proposed_title: str, cutoff: float = 0.84) -> List[Dict[str, Any]]:
++    """Treat title-search via RAG as the fuzzy pass and keep results ≥ cutoff."""
++    if not (proposed_title or "").strip():
++        return []
++    hits = cosine_search(proposed_title, top_k=8)
++    return [h for h in hits if h["score"] >= cutoff]
