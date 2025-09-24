@@ -1,93 +1,85 @@
-<script>
-let createSession = { active:false, userText:"", answers:{} };
-
-function pickNextQuestion(qs, answers){
-  // choose the first question whose field isn't answered yet
-  for (const q of qs || []) {
-    if (!answers || !answers.hasOwnProperty(q.field) || !String(answers[q.field]||"").trim()){
-      return q;
-    }
-  }
-  return null;
+# ================== NEW: field extraction ==================
+DOC_TYPE_MAP = {
+    "policy": "policy", "política": "policy", "politica": "policy",
+    "procedure": "procedure", "procedimiento": "procedure", "sop": "procedure",
+    "guideline": "guideline", "guía": "guideline", "guia": "guideline",
+    "template": "template", "plantilla": "template",
+    "standard": "standard", "estándar": "standard", "estandar": "standard",
+    "plan": "plan", "faq": "faq", "report": "report", "memo": "memo",
+    "contract": "contract"
 }
 
-function renderVerifyResult(r){
-  if (r?.status === "duplicate_suspected"){
-    const lines = [];
-    const firstStrongSet = (r.vector_results || []).find(v => (v.strong||[]).length > 0);
-    if (firstStrongSet) {
-      lines.push("🔎 Encontré documentos similares:");
-      for (const d of firstStrongSet.strong) lines.push(`• ${d.name} (sim ${d.score.toFixed(2)})`);
+def _normalize_doc_type(s: str) -> Optional[str]:
+    if not s: return None
+    s = s.strip().lower()
+    # try exact or simple contains
+    for k, v in DOC_TYPE_MAP.items():
+        if s == k or k in s:
+            return v
+    return None
+
+def _regex_infer(user_text: str) -> Dict[str, Any]:
+    """Very light ES/EN regex fallback."""
+    import re
+    t = user_text.strip()
+    doc_type = None
+    # look for keywords
+    for key in ["política","politica","policy","procedimiento","procedure","guideline","guía","guia","plantilla","template","estándar","estandar","standard","sop"]:
+        if re.search(rf"\b{key}\b", t, flags=re.IGNORECASE):
+            doc_type = _normalize_doc_type(key)
+            break
+    # naive title: if text includes 'called|titled|llamado|llamada', take the phrase after it
+    title = None
+    m = re.search(r"(called|titled|llamado|llamada)\s+(.+)$", t, flags=re.IGNORECASE)
+    if m:
+        title = m.group(2).strip().strip('".')
+    # or if it starts with Política/Policy and long phrase, treat as title
+    if not title:
+        m2 = re.search(r"\b(política|politica|policy)\b\s+(.+)", t, flags=re.IGNORECASE)
+        if m2:
+            title = m2.group(0).strip().strip('".')  # keep the prefix word too
+    # language guess
+    language = "es" if re.search(r"[áéíóúñ]|( de )|( para )|( y )", t, re.IGNORECASE) else "en"
+    return {"doc_type": doc_type, "title": title, "language": language}
+
+def extract_fields(user_text: str) -> Dict[str, Any]:
+    """
+    Use SecureGPT (proxy) to extract fields; fall back to regex if needed.
+    Returns: {"doc_type": "...", "title": "...", "language": "es|en|..."}
+    """
+    system = (
+        "You extract structured fields from a user's request to create a document. "
+        "Return STRICT JSON only with keys: doc_type, title, language. "
+        "Normalize doc_type to one of: policy, procedure, guideline, template, standard, plan, faq, report, memo, contract, other. "
+        "For Spanish synonyms map: política→policy, procedimiento→procedure, guía→guideline, plantilla→template, estándar→standard. "
+        "If the text clearly contains a title (e.g., starts with 'Política ...' or says 'called <title>'), return it. "
+        "Infer language code like 'es' or 'en'. No prose outside JSON."
+    )
+    user = f'Text: "{user_text.strip()}"'
+    raw = call_chat(
+        [{"role": "system", "content": system},
+         {"role": "user", "content": user}],
+        temperature=0.1, max_tokens=200
+    )
+    data = {}
+    try:
+        data = json.loads(strip_code_fences(raw))
+    except Exception:
+        data = {}
+    # sanitize + normalize
+    out = {
+        "doc_type": _normalize_doc_type((data or {}).get("doc_type") or ""),
+        "title": (data or {}).get("title"),
+        "language": (data or {}).get("language")
     }
-    if ((r.fuzzy_title_hits||[]).length){
-      lines.push("");
-      lines.push("📝 Coincidencias por título (difuso):");
-      for (const f of r.fuzzy_title_hits) lines.push(`• ${f.name} (≈${(f.score*100).toFixed(0)}%)`);
-    }
-    return lines.join("\n") || "Se sospecha duplicado.";
-  }
-  return "✅ No encontré duplicados fuertes. Puedes continuar con la creación del documento.";
-}
-
-async function handleCreateSend(text){
-  try {
-    // Initialize session with the very first user utterance
-    if (!createSession.active){
-      createSession = { active:true, userText:text, answers:{} };
-      pushAssistant("Pensando el siguiente paso…");
-      const step = await callCreateStep(createSession.userText, createSession.answers);
-
-      if (step.action === 'ask'){
-        const q = pickNextQuestion(step.questions, createSession.answers);
-        if (!q){ pushAssistant("Necesito un dato más, ¿cuál es el título propuesto?"); return; }
-        createSession.lastQuestion = q;     // remember what we asked
-        pushAssistant(q.question + (q.hint ? `\nHint: ${q.hint}` : ""));
-        return;
-      }
-
-      if (step.action === 'verify'){
-        pushAssistant(renderVerifyResult(step.result));
-        createSession = { active:false, userText:"", answers:{} };
-        return;
-      }
-
-      pushAssistant("No pude decidir el siguiente paso.");
-      createSession = { active:false, userText:"", answers:{} };
-      return;
-    }
-
-    // We are mid-session: treat the user's text as answer to the last asked question
-    if (createSession.lastQuestion){
-      createSession.answers[createSession.lastQuestion.field] = text;
-      delete createSession.lastQuestion;
-    }
-
-    // Ask the agent again what to do now
-    pushAssistant("Analizando tu respuesta…");
-    const step = await callCreateStep(createSession.userText, createSession.answers);
-
-    if (step.action === 'ask'){
-      const q = pickNextQuestion(step.questions, createSession.answers);
-      if (q){
-        createSession.lastQuestion = q;
-        pushAssistant(q.question + (q.hint ? `\nHint: ${q.hint}` : ""));
-        return;
-      }
-      // If the agent returns "ask" but all provided qs are already answered, fall through to verify
-    }
-
-    if (step.action === 'verify' || !step.action || step.action === 'ask'){
-      // Default to verify if agent is indecisive
-      const result = step.result || { status:"clear_to_create", vector_results:[], fuzzy_title_hits:[] };
-      pushAssistant(renderVerifyResult(result));
-      createSession = { active:false, userText:"", answers:{} };
-      return;
-    }
-
-  } catch (err) {
-    console.error(err);
-    pushAssistant("⚠️ Error en modo creación. Revisa la consola.");
-    createSession = { active:false, userText:"", answers:{} };
-  }
-}
-</script>
+    # fallback if missing
+    if not out["doc_type"] or not out["title"]:
+        rgx = _regex_infer(user_text)
+        out["doc_type"] = out["doc_type"] or rgx.get("doc_type")
+        out["title"]    = out["title"]    or rgx.get("title")
+        out["language"] = out["language"] or rgx.get("language")
+    # final defaults
+    if out["doc_type"] is None: out["doc_type"] = "other"
+    if out["language"] is None: out["language"] = "en"
+    return out
+# ===========================================================
