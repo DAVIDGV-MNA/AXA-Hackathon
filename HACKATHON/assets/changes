@@ -1,61 +1,7 @@
-function rebindControls(){
-  const sendBtn = document.querySelector('.action-btn.send');
-  const textarea = document.querySelector('.chat-input');
-  if (!sendBtn || !textarea) return;
+curl -s -X POST http://127.0.0.1:8001/create/assessment \
+  -H "Content-Type: application/json" \
+  -d '{"user_request_text":"Crear política IA proveedores"}'
 
-  const newSend = sendBtn.cloneNode(true);
-  sendBtn.parentNode.replaceChild(newSend, sendBtn);
-  const newTextarea = textarea.cloneNode(true);
-  textarea.parentNode.replaceChild(newTextarea, textarea);
-
-  const inputEl = document.querySelector('.chat-input');
-  const sendEl = document.querySelector('.action-btn.send');
-
-  async function routeSend(){
-    const text = (inputEl.value || '').trim();
-    if (!text) return;
-
-    if (document.getElementById('agent-selector')?.style.display !== 'none') startChatUI();
-
-    // 1) show user's message in the SAME chat the renderer uses
-    window.chatAppend('user', text);
-    inputEl.value = '';
-
-    try {
-      const mode = (typeof getCurrentMode === 'function') ? getCurrentMode() : 'retrieve';
-
-      // 2) CREATE → assessment + verifier
-      if (mode === 'create') {
-        await handleCreateSend(text);   // this pushes assistant messages itself
-        return;
-      }
-
-      // 3) RETRIEVE → your RAG service
-      if (mode === 'retrieve') {
-        // optional: show a typing indicator if you want
-        const reply = await callRAGQuery(text, chatHistory);
-        window.chatAppend('assistant', reply || '(empty reply)');
-        return;
-      }
-
-      // 4) Default chat via SecureGPT
-      const msgs = chatHistory.map(m => ({ role: m.role, content: m.content }));
-      const reply = await callSecureGPTChat(msgs);
-      window.chatAppend('assistant', reply || '(empty reply)');
-    } catch (err) {
-      console.error(err);
-      window.chatAppend('assistant', '⚠️ Error contacting backend. Check console.');
-    }
-  }
-
-  // Click
-  sendEl.addEventListener('click', routeSend);
-
-  // Enter to send (Shift+Enter = newline)
-  inputEl.addEventListener('keydown', function(e){
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      routeSend();
-    }
-  });
-}
+curl -s -X POST http://127.0.0.1:8001/create/verify \
+  -H "Content-Type: application/json" \
+  -d '{"user_request_text":"Crear política IA proveedores", "answers":{"title":"Política de Uso de IA para Proveedores"}}'
