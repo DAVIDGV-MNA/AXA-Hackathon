@@ -1,23 +1,156 @@
 <script>
+/* ============================
+   Create Mode – Client (proxy-only)
+   Requires your create_service.py running on :8001
+   ============================ */
+
+const CREATE_API_BASE = "http://127.0.0.1:8001";
+
+// --- UI integration shims (use your own if you already have them) ---
+window.chatHistory = window.chatHistory || [];
+
+function pushUser(content){
+  chatHistory.push({ role: 'user', content });
+  if (typeof renderMessages === 'function') renderMessages(chatHistory);
+}
+
+function pushAssistant(content){
+  chatHistory.push({ role: 'assistant', content });
+  if (typeof renderMessages === 'function') renderMessages(chatHistory);
+}
+
+// --- API helpers (proxy only) ---
 async function callCreateAssessmentStart(user_request_text){
-  const res = await fetch("http://127.0.0.1:8000/create/assessment", {
+  const res = await fetch(`${CREATE_API_BASE}/create/assessment`, {
     method: "POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({ user_request_text, max_q: 10 })
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.detail || "Assessment error");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.detail || "No se pudo iniciar el cuestionario.");
   return data.questions || [];
 }
 
 async function callCreateVerify(user_request_text, answers){
-  const res = await fetch("http://127.0.0.1:8000/create/verify", {
+  const res = await fetch(`${CREATE_API_BASE}/create/verify`, {
     method: "POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({ user_request_text, answers, threshold: 0.82, top_k: 8 })
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.detail || "Verify error");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.detail || "No se pudo verificar duplicados.");
   return data;
 }
+
+// --- Session state ---
+let createSession = {
+  active: false,
+  userText: "",
+  idx: 0,
+  questions: [],
+  answers: {}
+};
+
+// --- Render verifier result nicely ---
+function renderVerifyResult(r){
+  if (r?.status === "duplicate_suspected"){
+    const lines = [];
+    const firstStrongSet = (r.vector_results || []).find(v => (v.strong||[]).length > 0);
+
+    if (firstStrongSet) {
+      lines.push("🔎 Encontré documentos similares:");
+      for (const d of firstStrongSet.strong) {
+        lines.push(`• ${d.name}  (sim ${d.score.toFixed(2)})`);
+      }
+    }
+
+    if ((r.fuzzy_title_hits||[]).length){
+      lines.push("");
+      lines.push("📝 Coincidencias por título (difuso):");
+      for (const f of r.fuzzy_title_hits) {
+        lines.push(`• ${f.name}  (≈${(f.score*100).toFixed(0)}%)`);
+      }
+    }
+    return lines.join("\n") || "Se sospecha duplicado.";
+  }
+  return "✅ No encontré duplicados fuertes. Puedes continuar con la creación del documento.";
+}
+
+// --- Main: handle create mode messages from the user ---
+async function handleCreateSend(text){
+  try {
+    // FIRST message → start assessment
+    if (!createSession.active){
+      createSession = { active:true, userText:text, idx:0, questions:[], answers:{} };
+
+      pushAssistant("Iniciando cuestionario para recopilar la información mínima…");
+      const qs = await callCreateAssessmentStart(text);
+      createSession.questions = qs;
+
+      if (!qs.length){
+        pushAssistant("No pude generar un cuestionario ahora mismo. Intenta de nuevo más tarde.");
+        createSession = { active:false, userText:"", idx:0, questions:[], answers:{} };
+        return;
+      }
+
+      // Ask first question
+      const q = qs[0];
+      pushAssistant(q.question + (q.hint ? `\nHint: ${q.hint}` : ""));
+      return;
+    }
+
+    // Q&A loop → current answer
+    const q = createSession.questions[createSession.idx];
+    if (q) createSession.answers[q.field] = text;
+    createSession.idx++;
+
+    // Still more questions? Ask next
+    if (createSession.idx < createSession.questions.length){
+      const next = createSession.questions[createSession.idx];
+      pushAssistant(next.question + (next.hint ? `\nHint: ${next.hint}` : ""));
+      return;
+    }
+
+    // All answered → run verifier
+    pushAssistant("Verificando si existen documentos similares…");
+    const result = await callCreateVerify(createSession.userText, createSession.answers);
+    pushAssistant(renderVerifyResult(result));
+
+  } catch (err) {
+    console.error(err);
+    const msg = (err && err.message) ? err.message : "Error desconocido en modo creación.";
+    pushAssistant("⚠️ " + msg);
+  } finally {
+    // Always reset session after verifier (or on failure)
+    if (createSession.idx >= (createSession.questions?.length || 0)) {
+      createSession = { active:false, userText:"", idx:0, questions:[], answers:{} };
+    }
+  }
+}
+
+/* ============================
+   How to wire into your Send button
+   --------------------------------
+   In your existing send handler, route Create mode through handleCreateSend:
+
+   Example:
+
+   sendBtn.addEventListener('click', async () => {
+     const text = chatInputEl.value.trim();
+     if (!text) return;
+
+     // show user message in the chat
+     pushUser(text);
+     chatInputEl.value = '';
+
+     if (getCurrentMode && getCurrentMode() === 'create') {
+       await handleCreateSend(text);      // <-- just call this
+       return;
+     }
+
+     // ... keep your normal Retrieve/Chat flow here ...
+   });
+
+   If you also support Enter-to-send, call the same logic there.
+   ============================ */
 </script>
