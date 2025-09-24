@@ -1,85 +1,39 @@
-# ================== NEW: field extraction ==================
-DOC_TYPE_MAP = {
-    "policy": "policy", "política": "policy", "politica": "policy",
-    "procedure": "procedure", "procedimiento": "procedure", "sop": "procedure",
-    "guideline": "guideline", "guía": "guideline", "guia": "guideline",
-    "template": "template", "plantilla": "template",
-    "standard": "standard", "estándar": "standard", "estandar": "standard",
-    "plan": "plan", "faq": "faq", "report": "report", "memo": "memo",
-    "contract": "contract"
-}
+# ================== UPDATED /create/step ===================
+@app.post("/create/step")
+def create_step(body: StepIn):
+    # 0) Prefill from user text (LLM + regex) so we don't ask what's obvious
+    answers_prefilled = dict(body.answers or {})
+    inferred = extract_fields(body.user_request_text)
+    for k in ("doc_type", "title", "language"):
+        if not answers_prefilled.get(k) and inferred.get(k):
+            answers_prefilled[k] = inferred[k]
 
-def _normalize_doc_type(s: str) -> Optional[str]:
-    if not s: return None
-    s = s.strip().lower()
-    # try exact or simple contains
-    for k, v in DOC_TYPE_MAP.items():
-        if s == k or k in s:
-            return v
-    return None
+    # 1) Let the model decide next best action using the enriched answers
+    decision = _agent_decide(body.user_request_text, answers_prefilled, max_q=body.max_q)
+    action = decision.get("action")
 
-def _regex_infer(user_text: str) -> Dict[str, Any]:
-    """Very light ES/EN regex fallback."""
-    import re
-    t = user_text.strip()
-    doc_type = None
-    # look for keywords
-    for key in ["política","politica","policy","procedimiento","procedure","guideline","guía","guia","plantilla","template","estándar","estandar","standard","sop"]:
-        if re.search(rf"\b{key}\b", t, flags=re.IGNORECASE):
-            doc_type = _normalize_doc_type(key)
-            break
-    # naive title: if text includes 'called|titled|llamado|llamada', take the phrase after it
-    title = None
-    m = re.search(r"(called|titled|llamado|llamada)\s+(.+)$", t, flags=re.IGNORECASE)
-    if m:
-        title = m.group(2).strip().strip('".')
-    # or if it starts with Política/Policy and long phrase, treat as title
-    if not title:
-        m2 = re.search(r"\b(política|politica|policy)\b\s+(.+)", t, flags=re.IGNORECASE)
-        if m2:
-            title = m2.group(0).strip().strip('".')  # keep the prefix word too
-    # language guess
-    language = "es" if re.search(r"[áéíóúñ]|( de )|( para )|( y )", t, re.IGNORECASE) else "en"
-    return {"doc_type": doc_type, "title": title, "language": language}
+    # 2) If ask → return questions (only for fields still missing)
+    if action == "ask":
+        qs = decision.get("questions", [])
+        # Filter out questions for fields we already inferred
+        filtered = [q for q in qs if not answers_prefilled.get(q.get("field"))]
+        return {
+            "action": "ask",
+            "reason": decision.get("reason",""),
+            "questions": filtered,
+            "missing_fields": [q.get("field") for q in filtered]
+        }
 
-def extract_fields(user_text: str) -> Dict[str, Any]:
-    """
-    Use SecureGPT (proxy) to extract fields; fall back to regex if needed.
-    Returns: {"doc_type": "...", "title": "...", "language": "es|en|..."}
-    """
-    system = (
-        "You extract structured fields from a user's request to create a document. "
-        "Return STRICT JSON only with keys: doc_type, title, language. "
-        "Normalize doc_type to one of: policy, procedure, guideline, template, standard, plan, faq, report, memo, contract, other. "
-        "For Spanish synonyms map: política→policy, procedimiento→procedure, guía→guideline, plantilla→template, estándar→standard. "
-        "If the text clearly contains a title (e.g., starts with 'Política ...' or says 'called <title>'), return it. "
-        "Infer language code like 'es' or 'en'. No prose outside JSON."
+    # 3) If verify → perform duplicate check using enriched answers
+    result = _run_verify(
+        user_text=body.user_request_text,
+        answers=answers_prefilled,
+        top_k=body.top_k,
+        threshold=body.threshold
     )
-    user = f'Text: "{user_text.strip()}"'
-    raw = call_chat(
-        [{"role": "system", "content": system},
-         {"role": "user", "content": user}],
-        temperature=0.1, max_tokens=200
-    )
-    data = {}
-    try:
-        data = json.loads(strip_code_fences(raw))
-    except Exception:
-        data = {}
-    # sanitize + normalize
-    out = {
-        "doc_type": _normalize_doc_type((data or {}).get("doc_type") or ""),
-        "title": (data or {}).get("title"),
-        "language": (data or {}).get("language")
+    return {
+        "action": "verify",
+        "reason": decision.get("reason",""),
+        "result": result
     }
-    # fallback if missing
-    if not out["doc_type"] or not out["title"]:
-        rgx = _regex_infer(user_text)
-        out["doc_type"] = out["doc_type"] or rgx.get("doc_type")
-        out["title"]    = out["title"]    or rgx.get("title")
-        out["language"] = out["language"] or rgx.get("language")
-    # final defaults
-    if out["doc_type"] is None: out["doc_type"] = "other"
-    if out["language"] is None: out["language"] = "en"
-    return out
 # ===========================================================
