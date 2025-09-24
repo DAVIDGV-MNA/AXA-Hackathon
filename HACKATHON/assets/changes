@@ -1,18 +1,93 @@
 <script>
-async function callCreateStep(user_request_text, answers){
-  const res = await fetch("http://127.0.0.1:8001/create/step", {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({
-      user_request_text,
-      answers,
-      threshold: 0.82,
-      top_k: 8,
-      max_q: 6
-    })
-  });
-  const data = await res.json().catch(()=> ({}));
-  if (!res.ok) throw new Error(data?.detail || "Create step error");
-  return data; // { action: 'ask'|'verify', questions?, result?, reason? }
+let createSession = { active:false, userText:"", answers:{} };
+
+function pickNextQuestion(qs, answers){
+  // choose the first question whose field isn't answered yet
+  for (const q of qs || []) {
+    if (!answers || !answers.hasOwnProperty(q.field) || !String(answers[q.field]||"").trim()){
+      return q;
+    }
+  }
+  return null;
+}
+
+function renderVerifyResult(r){
+  if (r?.status === "duplicate_suspected"){
+    const lines = [];
+    const firstStrongSet = (r.vector_results || []).find(v => (v.strong||[]).length > 0);
+    if (firstStrongSet) {
+      lines.push("🔎 Encontré documentos similares:");
+      for (const d of firstStrongSet.strong) lines.push(`• ${d.name} (sim ${d.score.toFixed(2)})`);
+    }
+    if ((r.fuzzy_title_hits||[]).length){
+      lines.push("");
+      lines.push("📝 Coincidencias por título (difuso):");
+      for (const f of r.fuzzy_title_hits) lines.push(`• ${f.name} (≈${(f.score*100).toFixed(0)}%)`);
+    }
+    return lines.join("\n") || "Se sospecha duplicado.";
+  }
+  return "✅ No encontré duplicados fuertes. Puedes continuar con la creación del documento.";
+}
+
+async function handleCreateSend(text){
+  try {
+    // Initialize session with the very first user utterance
+    if (!createSession.active){
+      createSession = { active:true, userText:text, answers:{} };
+      pushAssistant("Pensando el siguiente paso…");
+      const step = await callCreateStep(createSession.userText, createSession.answers);
+
+      if (step.action === 'ask'){
+        const q = pickNextQuestion(step.questions, createSession.answers);
+        if (!q){ pushAssistant("Necesito un dato más, ¿cuál es el título propuesto?"); return; }
+        createSession.lastQuestion = q;     // remember what we asked
+        pushAssistant(q.question + (q.hint ? `\nHint: ${q.hint}` : ""));
+        return;
+      }
+
+      if (step.action === 'verify'){
+        pushAssistant(renderVerifyResult(step.result));
+        createSession = { active:false, userText:"", answers:{} };
+        return;
+      }
+
+      pushAssistant("No pude decidir el siguiente paso.");
+      createSession = { active:false, userText:"", answers:{} };
+      return;
+    }
+
+    // We are mid-session: treat the user's text as answer to the last asked question
+    if (createSession.lastQuestion){
+      createSession.answers[createSession.lastQuestion.field] = text;
+      delete createSession.lastQuestion;
+    }
+
+    // Ask the agent again what to do now
+    pushAssistant("Analizando tu respuesta…");
+    const step = await callCreateStep(createSession.userText, createSession.answers);
+
+    if (step.action === 'ask'){
+      const q = pickNextQuestion(step.questions, createSession.answers);
+      if (q){
+        createSession.lastQuestion = q;
+        pushAssistant(q.question + (q.hint ? `\nHint: ${q.hint}` : ""));
+        return;
+      }
+      // If the agent returns "ask" but all provided qs are already answered, fall through to verify
+    }
+
+    if (step.action === 'verify' || !step.action || step.action === 'ask'){
+      // Default to verify if agent is indecisive
+      const result = step.result || { status:"clear_to_create", vector_results:[], fuzzy_title_hits:[] };
+      pushAssistant(renderVerifyResult(result));
+      createSession = { active:false, userText:"", answers:{} };
+      return;
+    }
+
+  } catch (err) {
+    console.error(err);
+    pushAssistant("⚠️ Error en modo creación. Revisa la consola.");
+    createSession = { active:false, userText:"", answers:{} };
+  }
 }
 </script>
