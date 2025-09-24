@@ -1,137 +1,18 @@
-# ====== [ADD BELOW YOUR EXISTING ENDPOINTS] ==================================
-from typing import Tuple
-
-class StepIn(BaseModel):
-    user_request_text: str
-    answers: Dict[str, Any] = {}
-    top_k: int = 8
-    threshold: float = 0.82
-    max_q: int = 6
-
-def _strip_json(s: str) -> Dict[str, Any]:
-    try:
-        return json.loads(strip_code_fences(s))
-    except Exception:
-        return {}
-
-def _answers_summary(answers: Dict[str, Any]) -> str:
-    keys = ["doc_type","title","purpose","audience","scope","dependencies","regulatory","owner_team","deadline","languages"]
-    parts = []
-    for k in keys:
-        v = answers.get(k)
-        if v:
-            parts.append(f"{k}={v}")
-    return "; ".join(parts) if parts else "(none)"
-
-def _agent_decide(user_text: str, answers: Dict[str, Any], max_q: int) -> Dict[str, Any]:
-    system = "You are an orchestration agent for create-mode. Output STRICT JSON only."
-    user = f"""
-Decide the next best step to create a new document.
-
-Inputs:
-- user_request_text: "{user_text}"
-- current_fields: "{_answers_summary(answers)}"
-
-Actions:
-- "verify": when there is enough signal (e.g., a proposed title, doc_type, or sufficiently descriptive intent) to check for duplicates now.
-- "ask": when key fields are missing; ask the minimal questions to unlock verification/authoring.
-
-Return JSON ONLY with this schema:
-{{
-  "action": "verify" | "ask",
-  "reason": "short rationale",
-  "missing_fields": ["field_a","field_b"],   // only if action="ask"
-  "questions": [                              // only if action="ask"
-    {{"id":"q1","field":"title","question":"...","hint":"...","required":true}}
-  ]
-}}
-
-Rules:
-- <= {max_q} questions when action="ask".
-- Prefer asking for: doc_type, title, purpose, audience, scope first.
-- No prose outside JSON.
-""".strip()
-
-    raw = call_chat(
-        [{"role":"system","content":system},{"role":"user","content":user}],
-        temperature=0.2, max_tokens=600
-    )
-    data = _strip_json(raw)
-
-    # Fallback heuristic if model fails
-    if not data or data.get("action") not in {"verify","ask"}:
-        need = [k for k in ["title","doc_type","purpose"] if not answers.get(k)]
-        if need:
-            data = {
-                "action":"ask",
-                "reason":"missing key fields",
-                "missing_fields":need,
-                "questions":[
-                    {"id":"q1","field":need[0],"question":f"¿Podrías indicar {need[0]}?", "required":True}
-                ]
-            }
-        else:
-            data = {"action":"verify","reason":"sufficient signal"}
-    # Normalize shape
-    if data.get("action")=="ask":
-        qs = data.get("questions") or []
-        out = []
-        for i, q in enumerate(qs[:max_q], 1):
-            out.append({
-                "id"      : str(q.get("id") or f"q{i}"),
-                "field"   : str(q.get("field") or f"field_{i}"),
-                "question": str(q.get("question") or "Proporciona el dato."),
-                "hint"    : q.get("hint"),
-                "required": bool(q.get("required", True)),
-            })
-        data["questions"] = out
-    return data
-
-def _run_verify(user_text: str, answers: Dict[str, Any], top_k: int, threshold: float) -> Dict[str, Any]:
-    candidate = build_candidate(user_text, answers)
-    alts = gen_alt_titles(user_text, answers, k=6)
-    tried_qs = [candidate] + alts
-    vector_results = []
-    strong_any = False
-    for q in tried_qs:
-        hits = cosine_search(q, top_k=top_k)
-        strong = [h for h in hits if h["score"] >= threshold]
-        if strong: strong_any = True
-        vector_results.append({"query": q, "topk_docs": hits, "strong": strong})
-    fuzzy = fuzzy_title_hits(answers.get("title",""), cutoff=0.84)
-    status = "duplicate_suspected" if strong_any or len(fuzzy)>0 else "clear_to_create"
-    return {
-        "status": status,
-        "tried_queries": tried_qs,
-        "vector_results": vector_results,
-        "fuzzy_title_hits": fuzzy
-    }
-
-@app.post("/create/step")
-def create_step(body: StepIn):
-    # 1) Let the model decide
-    decision = _agent_decide(body.user_request_text, body.answers, max_q=body.max_q)
-    action = decision.get("action")
-
-    # 2) If ask → return questions
-    if action == "ask":
-        return {
-            "action": "ask",
-            "reason": decision.get("reason",""),
-            "questions": decision.get("questions", []),
-            "missing_fields": decision.get("missing_fields", [])
-        }
-
-    # 3) If verify → perform duplicate check and return result
-    result = _run_verify(
-        user_text=body.user_request_text,
-        answers=body.answers,
-        top_k=body.top_k,
-        threshold=body.threshold
-    )
-    return {
-        "action": "verify",
-        "reason": decision.get("reason",""),
-        "result": result
-    }
-# ==============================================================================
+<script>
+async function callCreateStep(user_request_text, answers){
+  const res = await fetch("http://127.0.0.1:8001/create/step", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      user_request_text,
+      answers,
+      threshold: 0.82,
+      top_k: 8,
+      max_q: 6
+    })
+  });
+  const data = await res.json().catch(()=> ({}));
+  if (!res.ok) throw new Error(data?.detail || "Create step error");
+  return data; // { action: 'ask'|'verify', questions?, result?, reason? }
+}
+</script>
