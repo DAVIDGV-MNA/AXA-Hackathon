@@ -1,31 +1,38 @@
-def load_pdf(path: Path) -> List[Tuple[str, int]]:
-    try:
-        from pypdf import PdfReader
-        reader = PdfReader(str(path))
-        pages = []
-        for i, p in enumerate(reader.pages):
-            try:
-                t = p.extract_text() or ""
-            except:
-                t = ""
-            t = preprocess_page_text(t)   # <-- NEW
-            pages.append((t, i + 1))
-        return pages
-    except:
-        return []
+# --- NEW: persistence for embeddings + dataframe
+import pandas as pd
 
-def load_docx(path: Path) -> List[Tuple[str, int]]:
-    try:
-        import docx2txt
-        text = docx2txt.process(str(path)) or ""
-    except:
-        text = ""
-    # For DOCX we treat as single 'page'
-    return [(preprocess_page_text(text), 1)]  # <-- NEW
+EMB_FILE = STORE_DIR / "embeddings.npy"     # aligned 1:1 with 'meta'
+DF_FILE  = STORE_DIR / "summary.parquet"    # per-chunk dataframe
 
-def load_txt_or_md(path: Path) -> List[Tuple[str, int]]:
-    try:
-        text = path.read_text(encoding="utf-8", errors="ignore")
-    except:
-        text = ""
-    return [(preprocess_page_text(text), 1)]  # <-- NEW
+def _load_embeddings() -> np.ndarray | None:
+    if EMB_FILE.exists():
+        try:
+            return np.load(EMB_FILE)
+        except Exception:
+            return None
+    return None
+
+def _save_embeddings(arr: np.ndarray):
+    np.save(EMB_FILE, arr)
+
+def _rebuild_df(meta_list: List[Dict[str, Any]], embs: np.ndarray | None):
+    """Write a Parquet with text + metadata + vector (as fixed-length array)."""
+    if not meta_list:
+        return
+    if embs is not None and len(embs) == len(meta_list):
+        # store vectors as list of floats so Parquet tools can read them easily
+        vecs = [emb.tolist() for emb in embs]
+    else:
+        vecs = [None] * len(meta_list)
+
+    df = pd.DataFrame({
+        "id":        [m["id"] for m in meta_list],
+        "path":      [m["path"] for m in meta_list],
+        "page":      [m.get("page", 1) for m in meta_list],
+        "title":     [m.get("title") for m in meta_list],
+        "doc_type":  [m.get("doc_type") for m in meta_list],
+        "keywords":  [m.get("keywords", []) for m in meta_list],
+        "text":      [m["text"] for m in meta_list],
+        "vector":    vecs,
+    })
+    df.to_parquet(DF_FILE, index=False)
