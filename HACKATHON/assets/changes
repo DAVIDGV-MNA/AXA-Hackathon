@@ -1,5 +1,1 @@
-def ensure_index_ready():
-    index, meta = load_store()
-    if index is None or index.ntotal == 0:
-        raise HTTPException(status_code=503, detail="Index not built. Call /rag/reindex first.")
-    return index, meta
+idx, meta = ensure_index_ready()
