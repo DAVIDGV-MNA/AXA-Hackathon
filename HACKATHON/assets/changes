@@ -1,57 +1,8 @@
-def build_or_update_store():
-    index, meta = load_store()
-    prior_dim = _read_dim()
-
-    indexed_ids = {m["id"] for m in meta}
-    all_files = discover_files()
-    new_chunks = []
-
-    for f in all_files:
-        for ch in load_file_to_chunks(f):
-            if ch["id"] in indexed_ids:
-                continue
-            new_chunks.append(ch)
-
-    # Nothing new but ensure dimension consistency
-    if not new_chunks and index is not None:
-        save_metadata_jsonl(meta)
-        return index, meta
-
-    if not new_chunks:
-        save_metadata_jsonl(meta)
-        return index, meta
-
-    embeddings = embed_texts([c["text"] for c in new_chunks]).astype(np.float32)
-    faiss.normalize_L2(embeddings)
-    dim = int(embeddings.shape[1])
-
-    # If dimension changed vs prior, rebuild from scratch
-    if prior_dim is not None and index is not None:
-        if dim != prior_dim:
-            index = None
-            meta = []
-            # Re-embed ALL files to ensure consistency
-            all_chunks = []
-            for f in all_files:
-                all_chunks.extend(load_file_to_chunks(f))
-            embeddings = embed_texts([c["text"] for c in all_chunks]).astype(np.float32)
-            faiss.normalize_L2(embeddings)
-            dim = int(embeddings.shape[1])
-            index = faiss.IndexFlatIP(dim)
-            index.add(embeddings)
-            meta.extend(all_chunks)
-            save_store(index, meta)
-            _write_dim(dim)
-            save_metadata_jsonl(meta)
-            return index, meta
-
-    if index is None:
-        index = faiss.IndexFlatIP(dim)
-        _write_dim(dim)
-
-    index.add(embeddings)
-    meta.extend(new_chunks)
-    save_store(index, meta)
-    _write_dim(dim)
-    save_metadata_jsonl(meta)
-    return index, meta
+class QueryIn(BaseModel):
+    query: str
+    history: List[Dict[str, Any]] = []
+    top_k: int = 5
+    doc_types: List[str] = []        # e.g., ["policy", "process"]
+    must_keywords: List[str] = []    # e.g., ["privacy", "billing"]
+    include_paths: List[str] = []    # substrings to include
+    exclude_paths: List[str] = []    # substrings to exclude
