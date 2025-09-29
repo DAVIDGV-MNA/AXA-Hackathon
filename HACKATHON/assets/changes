@@ -1,2 +1,151 @@
-# PowerShell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3500/rag/reindex
+@startuml
+title RAG Policy/Manual/Process System – Technical Architecture (PlantUML)
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultTextAlignment left
+skinparam wrapWidth 180
+skinparam package {
+  BackgroundColor #F8FAFD
+  BorderColor #B8C2CC
+}
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #4B5563
+}
+skinparam database {
+  BackgroundColor #FFFFFF
+  BorderColor #4B5563
+}
+skinparam cloud {
+  BackgroundColor #FFFFFF
+  BorderColor #4B5563
+}
+skinparam node {
+  BackgroundColor #FFFFFF
+  BorderColor #4B5563
+}
+
+actor "End User" as User
+
+package "Client Layer" {
+  [Chat UI (Web/App)\n• Chat + Upload\n• Create Document wizard] as ChatUI
+}
+
+package "Backend/API Layer" {
+  node "API Gateway / BFF" as APIGW
+
+  package "Synchronous Services" {
+    [Auth / Session\n(SSO/OAuth2, CSRF, Rate-limit)] as Auth
+    [Chat Orchestrator\n• Intent routing\n• Tool/Agent selection\n• Prompt builder] as Orchestrator
+    [RAG Retriever API\n• Hybrid search (BM25+Vector)\n• Metadata filters] as Retriever
+    [Reranker\n• CrossEncoder / ColBERT] as Reranker
+    [Document Generator API\n• Template fields\n• Policy/Process cover] as DocGenAPI
+    [Moderation & Guardrails\n• PII & secrets check] as Guardrails
+  }
+
+  package "Async Ingestion Pipeline" {
+    [Ingestion API\n• Accept uploads\n• Create job] as IngestAPI
+    [Queue/Worker\n• Celery/RQ] as Queue
+    [Preprocessor\n• OCR/PDF->Text\n• Header/Footer removal\n• De-dup/normalize\n• Chunking (by headings/tokens)] as Preproc
+    [Classifier & Tagger\n• policy/manual/process\n• keywords, owners] as Classifier
+    [Embedder\n• SecureGPT Embeddings] as Embedder
+    [Indexer\n• Build/Update FAISS\n• Persist metadata] as Indexer
+  }
+}
+
+package "Data Layer" {
+  database "Metadata DB\n(Postgres/SQLite)" as MetaDB
+  database "Vector Index\n(FAISS)" as VectorDB
+  database "Object Store\n(Raw & Generated Docs)\n(S3/SharePoint/Blob)" as ObjStore
+  [Observability\n• Logs/Metrics/Tracing] as Obs
+  [Cache\n(Redis)] as Cache
+}
+
+package "External Services" {
+  cloud "SecureGPT Gateway\n• /embeddings\n• /chat" as SecureGPT
+  cloud "Identity Provider\n(Azure AD/SSO)" as IdP
+}
+
+'========================
+' Connections (Auth, Basic)
+'========================
+User --> ChatUI : Interacts via chat & uploads
+ChatUI --> APIGW : HTTPS (REST/WebSocket)
+APIGW --> Auth : Session check / SSO tokens
+Auth --> IdP : OIDC/SAML
+
+'========================
+' Upload -> Ingest -> Index (Flow A)
+'========================
+ChatUI --> IngestAPI : [A1] Upload files (PDF/DOCX/CSV)
+IngestAPI --> ObjStore : [A2] Store raw files
+IngestAPI --> Queue : [A3] Enqueue ingestion job
+Queue --> Preproc : [A4] Start preprocessing
+Preproc --> ObjStore : [A5] (optional) Persist cleaned text
+Preproc --> Classifier : [A6] Send cleaned chunks
+Classifier --> MetaDB : [A7] Upsert doc & chunk metadata\ntype, tags, owners, ACL
+Classifier --> Embedder : [A8] Chunks → Embeddings
+Embedder --> SecureGPT : [A8.1] POST /embeddings
+Embedder --> Indexer : [A9] Return vectors
+Indexer --> VectorDB : [A10] Upsert vectors
+Indexer --> MetaDB : [A11] Link vectorIds↔metadata
+Preproc --> Obs : Logs/Metrics
+Indexer --> Obs : Logs/Metrics
+
+'========================
+' Chat Retrieval (Flow B)
+'========================
+ChatUI --> Orchestrator : [B1] User query / context
+Orchestrator --> Guardrails : [B2] Safety/PII checks
+Orchestrator --> Retriever : [B3] Build retriever request\n(query, filters, topK)
+Retriever --> Cache : [B4] Check cache (query+filters)
+Retriever --> VectorDB : [B5] ANN search (topK)
+Retriever --> MetaDB : [B6] Join metadata / ACL\n(policy/manual/process)
+Retriever --> Reranker : [B7] Re-rank candidates
+Reranker --> Orchestrator : [B8] Top N passages
+Orchestrator --> SecureGPT : [B9] POST /chat\n(messages + topN snippets + system prompt)
+SecureGPT --> Orchestrator : [B10] Answer + citations
+Orchestrator --> ChatUI : [B11] Streaming answer + source links
+Orchestrator --> Obs : Logs/Metrics
+
+'========================
+' Chat-Driven Document Generation (Flow C)
+'========================
+ChatUI --> DocGenAPI : [C1] “Create Policy/Process” intent\n+ collected fields
+DocGenAPI --> MetaDB : [C2] Fetch template schema\n& defaults
+DocGenAPI --> Retriever : [C3] Retrieve supporting content\n(optional grounding)
+DocGenAPI --> SecureGPT : [C4] Structured prompt → draft sections
+DocGenAPI --> ObjStore : [C5] Save DOCX/PDF output\n(versioned)
+DocGenAPI --> ChatUI : [C6] Return download link\n+ status
+DocGenAPI --> Obs : Logs/Metrics
+
+'========================
+' Supporting links
+'========================
+APIGW --> Orchestrator
+APIGW --> Retriever
+APIGW --> DocGenAPI
+Orchestrator --> Cache
+IngestAPI --> Obs
+Auth --> Obs
+SecureGPT --> Obs
+
+'========================
+' Legend
+'========================
+legend left
+  == Flows ==
+  [A*] Upload → Ingest → Index
+  [B*] Chat Retrieval (RAG)
+  [C*] Chat-Driven Document Generation
+
+  == Notes ==
+  • Preprocessor removes noisy footers/headers and duplicated tokens.
+  • Classifier tags docs as policy/manual/process for filterable retrieval.
+  • Hybrid retrieval recommended: BM25 + Vector; then neural re-rank.
+  • DocGen fills a standard template (cover, purpose, scope, roles, R&Rs).
+  • All calls guarded by Auth/ACLs; moderation at prompt boundaries.
+  • Observability across API, workers, and LLM calls.
+endlegend
+@enduml
