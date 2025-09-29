@@ -1,11 +1,6 @@
-# Reindex
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/rag/reindex"
-
-# Summary (10 rows)
-Invoke-RestMethod -Uri "http://localhost:8000/rag/summary"
-
-# Summary (25 rows)
-Invoke-RestMethod -Uri "http://localhost:8000/rag/summary?n=25"
-
-# CSV export
-Invoke-RestMethod -Uri "http://localhost:8000/rag/summary/csv"
+def chunk_list(seq, n):
+    """Yield successive n-sized chunks from seq. n must be > 0."""
+    if n <= 0:
+        raise ValueError("chunk size n must be > 0")
+    for i in range(0, len(seq), n):
+        yield seq[i:i + n]
