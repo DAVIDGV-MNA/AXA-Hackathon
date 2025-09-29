@@ -1,32 +1,11 @@
-# --- NEW: endpoints to preview/export the per-chunk dataframe ----------------
-@app.get("/rag/summary")
-def rag_summary(n: int = 10):
-    """Return a small preview of the dataframe and where the full file lives."""
-    ensure_index_ready()
-    if not DF_FILE.exists():
-        return {"preview": [], "parquet_path": str(DF_FILE)}
-    try:
-        import pandas as pd
-        df = pd.read_parquet(DF_FILE)
-        # Only show light columns / first n rows in API
-        cols = ["id", "path", "page", "title", "doc_type", "keywords"]
-        preview = df.loc[:, cols].head(max(1, n)).to_dict(orient="records")
-        return {"preview": preview, "parquet_path": str(DF_FILE)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read parquet: {e}")
+# Reindex
+Invoke-RestMethod -Method Post -Uri "http://localhost:8000/rag/reindex"
 
-@app.get("/rag/summary/csv")
-def rag_summary_csv():
-    """Materialize a CSV (without vectors) for easy inspection."""
-    ensure_index_ready()
-    if not DF_FILE.exists():
-        return {"csv_path": None, "detail": "No dataframe generated yet."}
-    try:
-        import pandas as pd
-        df = pd.read_parquet(DF_FILE)
-        out = STORE_DIR / "summary_no_vectors.csv"
-        df.drop(columns=["vector"], errors="ignore").to_csv(out, index=False)
-        return {"csv_path": str(out)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to write CSV: {e}")
-# ---------------------------------------------------------------------------
+# Summary (10 rows)
+Invoke-RestMethod -Uri "http://localhost:8000/rag/summary"
+
+# Summary (25 rows)
+Invoke-RestMethod -Uri "http://localhost:8000/rag/summary?n=25"
+
+# CSV export
+Invoke-RestMethod -Uri "http://localhost:8000/rag/summary/csv"
