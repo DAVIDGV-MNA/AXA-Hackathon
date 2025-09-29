@@ -1,47 +1,24 @@
-import string
+    # Determine doc-level metadata once
+    sample_text = (pieces[0][0] if pieces else "")[:4000]
+    title = extract_title_from_text(sample_text)
+    doc_type = infer_doc_type(path, sample_text)
+    keywords = derive_keywords(title, path)
 
-DOC_TYPE_PATTERNS = {
-    "policy":  re.compile(r"\b(policy|política|lineamiento|norma)\b", re.I),
-    "process": re.compile(r"\b(process|proceso|procedimiento|workflow|flujo)\b", re.I),
-    "manual":  re.compile(r"\b(manual|guía|guide|handbook)\b", re.I),
-}
-
-def infer_doc_type(path: Path, sample_text: str) -> str:
-    name = path.stem.lower()
-    haystack = (name + " " + (sample_text or "")[:2000]).lower()
-    for label, pat in DOC_TYPE_PATTERNS.items():
-        if pat.search(haystack):
-            return label
-    return "other"
-
-def extract_title_from_text(text: str) -> str:
-    # Prefer first Markdown-style H1
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
+    chunks = []
+    for text, page in pieces:
+        if not text.strip():
             continue
-        if line.startswith("# "):
-            return line.lstrip("# ").strip()
-        # Heuristic: a “title-ish” first non-empty line without trailing punctuation
-        if 8 <= len(line) <= 120:
-            return line.strip(string.punctuation + " ").strip()
-    return "Untitled"
-
-STOPWORDS = set("""
-the a an and or of de la el los las un una y o en para por con del al
-""".split())
-
-def derive_keywords(title: str, path: Path) -> List[str]:
-    base = (title or "") + " " + path.stem.replace("_"," ").replace("-"," ")
-    toks = re.findall(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]{3,}", base)
-    kw = [t.lower() for t in toks if t.lower() not in STOPWORDS]
-    # de-dup, keep a few
-    seen = set()
-    out = []
-    for k in kw:
-        if k not in seen:
-            seen.add(k)
-            out.append(k)
-        if len(out) >= 12:
-            break
-    return out
+        for ch in simple_chunks(text):
+            if not ch.strip():
+                continue
+            chunks.append({
+                "id": str(uuid4()),
+                "text": ch,
+                "path": str(path),
+                "page": page,
+                # NEW METADATA:
+                "title": title,
+                "doc_type": doc_type,      # policy | process | manual | other
+                "keywords": keywords,
+            })
+    return chunks
