@@ -1,11 +1,2 @@
-import time
-_token_cache = {"val": None, "exp": 0}
-
-def access_token():
-    if _token_cache["val"] and time.time() < _token_cache["exp"] - 60:
-        return _token_cache["val"]
-    # ... do the token POST ...
-    data = resp.json()
-    _token_cache["val"] = data["access_token"]
-    _token_cache["exp"] = time.time() + int(data.get("expires_in", 3600))
-    return _token_cache["val"]
+import warnings, urllib3
+warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
