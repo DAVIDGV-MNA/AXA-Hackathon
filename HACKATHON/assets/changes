@@ -54,3 +54,23 @@ async function fetchDocs(){
   });
 }
 </script>
+
+<script>
+async function initDocuments(){
+  await fetchDocs();        // If it fails, DOCS = []
+  updateChipCounts();       // Will set All (0), Politics (0), …
+  applyDocFilters();        // Renders empty list with no errors
+}
+
+// Initialize when you open the Documents view
+let docsInitialized = false;
+function ensureDocsInit(){
+  if (!docsInitialized){ docsInitialized = true; initDocuments(); }
+}
+document.querySelector('[data-view="documents"]')?.addEventListener('click', ensureDocsInit);
+
+// Optional: prefetch on page load so chips are correct the first time you switch
+document.addEventListener('DOMContentLoaded', ()=> {
+  fetchDocs().then(()=> { updateChipCounts(); }); // no render until user opens the view
+});
+</script>
