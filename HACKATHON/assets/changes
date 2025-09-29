@@ -1,6 +1,53 @@
-def fuzzy_title_hits(proposed_title: str, cutoff: float = 0.84) -> List[Dict[str, Any]]:
-+    """Treat title-search via RAG as the fuzzy pass and keep results ≥ cutoff."""
-+    if not (proposed_title or "").strip():
-+        return []
-+    hits = cosine_search(proposed_title, top_k=8)
-+    return [h for h in hits if h["score"] >= cutoff]
+# ---- Embeddings (single, canonical) ----
+EMBED_DIM = os.getenv("EMBED_DIM")
+try:
+    EMBED_DIM = int(EMBED_DIM) if EMBED_DIM else None
+except:
+    EMBED_DIM = None
+
+def _bearer() -> str:
+    tok = access_token()
+    return f"Bearer {tok}"
+
+def embed_texts(texts: List[str]) -> np.ndarray:
+    """Batch embeddings; auto-detect dimension from result. Optional EMBED_DIM if your deployment supports it."""
+    if not texts:
+        return np.zeros((0, 1), dtype=np.float32)
+
+    safe_texts = [ (t or "")[:8000] for t in texts ]
+    out: List[np.ndarray] = []
+
+    for batch in chunk_list(safe_texts, BATCH_SIZE):
+        payload = {
+            "input": batch,
+            "user": "MXS00000000A",
+            "input_type": "query",
+            "encoding_format": "float",
+        }
+        # Only send 'dimensions' if explicitly configured AND your model supports it.
+        if EMBED_DIM:
+            payload["dimensions"] = EMBED_DIM
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": _bearer(),
+        }
+        resp = requests.post(
+            SECUREGPT_EMBED_MODEL_URL,
+            json=payload,
+            headers=headers,
+            timeout=120,
+            proxies=BYPASS_PROXIES,
+            verify=False
+        )
+        if resp.status_code == 401:
+            raise RuntimeError("401 from embedding endpoint—check client credentials / scopes.")
+        if resp.status_code == 400:
+            raise RuntimeError(f"400 from embedding endpoint: {resp.text}")
+
+        resp.raise_for_status()
+        data = resp.json()
+        batch_embs = [np.asarray(item["embedding"], dtype=np.float32) for item in data["data"]]
+        out.extend(batch_embs)
+
+    return np.vstack(out)
