@@ -1,78 +1,32 @@
-def build_or_update_store():
-    index, meta = load_store()
-    prior_dim = _read_dim()
+# --- NEW: endpoints to preview/export the per-chunk dataframe ----------------
+@app.get("/rag/summary")
+def rag_summary(n: int = 10):
+    """Return a small preview of the dataframe and where the full file lives."""
+    ensure_index_ready()
+    if not DF_FILE.exists():
+        return {"preview": [], "parquet_path": str(DF_FILE)}
+    try:
+        import pandas as pd
+        df = pd.read_parquet(DF_FILE)
+        # Only show light columns / first n rows in API
+        cols = ["id", "path", "page", "title", "doc_type", "keywords"]
+        preview = df.loc[:, cols].head(max(1, n)).to_dict(orient="records")
+        return {"preview": preview, "parquet_path": str(DF_FILE)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read parquet: {e}")
 
-    # Load existing embedding matrix if present
-    emb_mat = _load_embeddings()
-    if emb_mat is not None and (index is None or (hasattr(index, "ntotal") and index.ntotal != emb_mat.shape[0])):
-        # If counts disagree, we’ll rebuild embeddings from meta
-        emb_mat = None
-
-    indexed_ids = {m["id"] for m in meta}
-    all_files = discover_files()
-    new_chunks = []
-
-    for f in all_files:
-        for ch in load_file_to_chunks(f):
-            if ch["id"] in indexed_ids:
-                continue
-            new_chunks.append(ch)
-
-    # Nothing new—still ensure DF exists
-    if not new_chunks and index is not None:
-        _rebuild_df(meta, emb_mat)
-        save_metadata_jsonl(meta)
-        return index, meta
-
-    # If we got here and dimension mismatch is detected, full rebuild
-    def embed_chunks(chs: List[Dict[str, Any]]) -> np.ndarray:
-        arr = embed_texts([c["text"] for c in chs]).astype(np.float32)
-        faiss.normalize_L2(arr)
-        return arr
-
-    if new_chunks:
-        new_embs = embed_chunks(new_chunks)
-        dim = int(new_embs.shape[1])
-
-        if prior_dim is not None and index is not None and dim != prior_dim:
-            # Dimension changed => re-embed EVERYTHING
-            index = None
-            meta_all = []
-            for f in all_files:
-                meta_all.extend(load_file_to_chunks(f))
-            all_embs = embed_chunks(meta_all)
-            dim = int(all_embs.shape[1])
-            index = faiss.IndexFlatIP(dim)
-            index.add(all_embs)
-            meta = meta_all
-            _write_dim(dim)
-            _save_embeddings(all_embs)
-            save_store(index, meta)
-            save_metadata_jsonl(meta)
-            _rebuild_df(meta, all_embs)
-            return index, meta
-
-        # Normal incremental path
-        if index is None:
-            index = faiss.IndexFlatIP(int(new_embs.shape[1]))
-            _write_dim(int(new_embs.shape[1]))
-
-        index.add(new_embs)
-        meta.extend(new_chunks)
-
-        # Append to embedding matrix (or initialize)
-        if emb_mat is None:
-            emb_mat = new_embs
-        else:
-            emb_mat = np.vstack([emb_mat, new_embs])
-
-        save_store(index, meta)
-        _save_embeddings(emb_mat)
-        save_metadata_jsonl(meta)
-        _rebuild_df(meta, emb_mat)
-        return index, meta
-
-    # If we had no new chunks (should have been caught above), still build DF
-    _rebuild_df(meta, emb_mat)
-    save_metadata_jsonl(meta)
-    return index, meta
+@app.get("/rag/summary/csv")
+def rag_summary_csv():
+    """Materialize a CSV (without vectors) for easy inspection."""
+    ensure_index_ready()
+    if not DF_FILE.exists():
+        return {"csv_path": None, "detail": "No dataframe generated yet."}
+    try:
+        import pandas as pd
+        df = pd.read_parquet(DF_FILE)
+        out = STORE_DIR / "summary_no_vectors.csv"
+        df.drop(columns=["vector"], errors="ignore").to_csv(out, index=False)
+        return {"csv_path": str(out)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write CSV: {e}")
+# ---------------------------------------------------------------------------
