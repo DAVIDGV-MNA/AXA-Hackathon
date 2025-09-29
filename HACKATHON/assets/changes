@@ -1,38 +1,78 @@
-# --- NEW: persistence for embeddings + dataframe
-import pandas as pd
+def build_or_update_store():
+    index, meta = load_store()
+    prior_dim = _read_dim()
 
-EMB_FILE = STORE_DIR / "embeddings.npy"     # aligned 1:1 with 'meta'
-DF_FILE  = STORE_DIR / "summary.parquet"    # per-chunk dataframe
+    # Load existing embedding matrix if present
+    emb_mat = _load_embeddings()
+    if emb_mat is not None and (index is None or (hasattr(index, "ntotal") and index.ntotal != emb_mat.shape[0])):
+        # If counts disagree, we’ll rebuild embeddings from meta
+        emb_mat = None
 
-def _load_embeddings() -> np.ndarray | None:
-    if EMB_FILE.exists():
-        try:
-            return np.load(EMB_FILE)
-        except Exception:
-            return None
-    return None
+    indexed_ids = {m["id"] for m in meta}
+    all_files = discover_files()
+    new_chunks = []
 
-def _save_embeddings(arr: np.ndarray):
-    np.save(EMB_FILE, arr)
+    for f in all_files:
+        for ch in load_file_to_chunks(f):
+            if ch["id"] in indexed_ids:
+                continue
+            new_chunks.append(ch)
 
-def _rebuild_df(meta_list: List[Dict[str, Any]], embs: np.ndarray | None):
-    """Write a Parquet with text + metadata + vector (as fixed-length array)."""
-    if not meta_list:
-        return
-    if embs is not None and len(embs) == len(meta_list):
-        # store vectors as list of floats so Parquet tools can read them easily
-        vecs = [emb.tolist() for emb in embs]
-    else:
-        vecs = [None] * len(meta_list)
+    # Nothing new—still ensure DF exists
+    if not new_chunks and index is not None:
+        _rebuild_df(meta, emb_mat)
+        save_metadata_jsonl(meta)
+        return index, meta
 
-    df = pd.DataFrame({
-        "id":        [m["id"] for m in meta_list],
-        "path":      [m["path"] for m in meta_list],
-        "page":      [m.get("page", 1) for m in meta_list],
-        "title":     [m.get("title") for m in meta_list],
-        "doc_type":  [m.get("doc_type") for m in meta_list],
-        "keywords":  [m.get("keywords", []) for m in meta_list],
-        "text":      [m["text"] for m in meta_list],
-        "vector":    vecs,
-    })
-    df.to_parquet(DF_FILE, index=False)
+    # If we got here and dimension mismatch is detected, full rebuild
+    def embed_chunks(chs: List[Dict[str, Any]]) -> np.ndarray:
+        arr = embed_texts([c["text"] for c in chs]).astype(np.float32)
+        faiss.normalize_L2(arr)
+        return arr
+
+    if new_chunks:
+        new_embs = embed_chunks(new_chunks)
+        dim = int(new_embs.shape[1])
+
+        if prior_dim is not None and index is not None and dim != prior_dim:
+            # Dimension changed => re-embed EVERYTHING
+            index = None
+            meta_all = []
+            for f in all_files:
+                meta_all.extend(load_file_to_chunks(f))
+            all_embs = embed_chunks(meta_all)
+            dim = int(all_embs.shape[1])
+            index = faiss.IndexFlatIP(dim)
+            index.add(all_embs)
+            meta = meta_all
+            _write_dim(dim)
+            _save_embeddings(all_embs)
+            save_store(index, meta)
+            save_metadata_jsonl(meta)
+            _rebuild_df(meta, all_embs)
+            return index, meta
+
+        # Normal incremental path
+        if index is None:
+            index = faiss.IndexFlatIP(int(new_embs.shape[1]))
+            _write_dim(int(new_embs.shape[1]))
+
+        index.add(new_embs)
+        meta.extend(new_chunks)
+
+        # Append to embedding matrix (or initialize)
+        if emb_mat is None:
+            emb_mat = new_embs
+        else:
+            emb_mat = np.vstack([emb_mat, new_embs])
+
+        save_store(index, meta)
+        _save_embeddings(emb_mat)
+        save_metadata_jsonl(meta)
+        _rebuild_df(meta, emb_mat)
+        return index, meta
+
+    # If we had no new chunks (should have been caught above), still build DF
+    _rebuild_df(meta, emb_mat)
+    save_metadata_jsonl(meta)
+    return index, meta
