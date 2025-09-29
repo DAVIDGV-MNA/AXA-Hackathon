@@ -1,20 +1,8 @@
-import hashlib
+from pathlib import Path
+import os
 
-def stable_chunk_id(path: str, page: int, text: str) -> str:
-    # deterministic id: path + page + normalized text fingerprint
-    norm = " ".join(text.split()).lower()
-    h = hashlib.blake2b(digest_size=16)
-    h.update(path.encode("utf-8"))
-    h.update(f"|p{page}|".encode("utf-8"))
-    h.update(norm.encode("utf-8"))
-    return h.hexdigest()
+# Pick a canonical folder (change this to your real path)
+DEFAULT_STORE = r"C:\Users\MXE02020289A\OneDrive\David Alejandro, AXA\01.WinDevice\Desktop\StreamlineCX\vectorstore"
 
-"id": stable_chunk_id(str(path), page, ch),
-
-def ensure_index_ready():
-    index, meta = load_store()
-    if index is None or index.ntotal == 0:
-        raise HTTPException(status_code=503, detail="Index not built. Call /rag/reindex first.")
-    return index, meta
-
-
+STORE_DIR = Path(os.getenv("RAG_STORE_DIR", DEFAULT_STORE)).resolve()
+STORE_DIR.mkdir(parents=True, exist_ok=True)
