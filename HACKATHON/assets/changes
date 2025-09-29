@@ -1,1 +1,5 @@
-"id": stable_chunk_id(str(path), page, ch),
+def ensure_index_ready():
+    index, meta = load_store()
+    if index is None or index.ntotal == 0:
+        raise HTTPException(status_code=503, detail="Index not built. Call /rag/reindex first.")
+    return index, meta
