@@ -1,10 +1,1 @@
-import hashlib
-
-def stable_chunk_id(path: str, page: int, text: str) -> str:
-    # deterministic id: path + page + normalized text fingerprint
-    norm = " ".join(text.split()).lower()
-    h = hashlib.blake2b(digest_size=16)
-    h.update(path.encode("utf-8"))
-    h.update(f"|p{page}|".encode("utf-8"))
-    h.update(norm.encode("utf-8"))
-    return h.hexdigest()
+"id": stable_chunk_id(str(path), page, ch),
