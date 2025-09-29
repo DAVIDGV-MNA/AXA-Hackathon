@@ -1,50 +1,51 @@
 @startuml
-title RAG Docs & Generator – Simple Architecture
+title Simple Architecture – RAG + Agent
 
 left to right direction
 skinparam shadowing false
 skinparam componentStyle rectangle
+skinparam defaultTextAlignment left
 
 actor User
-rectangle "Client\nChat UI (Web/App)" as UI
 
-node "Backend" as BE {
-  [API / BFF] as API
-  [RAG Service] as RAG
-  [DocGen Service] as GEN
-  [Ingestion Worker] as ING
-}
+rectangle "Chat UI" as UI
+rectangle "API" as API
 
-database "Vector Index\n(FAISS)" as VEC
-database "Metadata DB\n(Postgres)" as DB
-database "Object Store\n(Raw & Generated)" as OBJ
-cloud "SecureGPT\n/embeddings + /chat" as LLM
-cloud "SSO / IdP" as IDP
+rectangle "RAG System\n• Retrieve\n• Re-rank\n• Build answer" as RAG
+rectangle "Agent (Document Generator)\n• Detect intent\n• Fill template\n• Export DOCX/PDF" as AGENT
 
-User --> UI
-UI --> API : Chat & Upload (HTTPS)
-API --> IDP : Auth/SSO
+rectangle "Ingestion\n• Preprocess & Chunk\n• Embed & Index" as ING
+rectangle "Vector Store" as VEC
+rectangle "Metadata DB" as DB
+rectangle "Object Store\n(raw & generated)" as OBJ
+rectangle "LLM\n(/embeddings, /chat)" as LLM
 
-' Upload → Ingest → Index
-API --> OBJ : Store files
-API --> ING : Enqueue ingestion job
-ING --> LLM : Embed chunks
-ING --> VEC : Upsert vectors
-ING --> DB  : Upsert metadata (type, tags, ACL)
+'--- User & API
+User --> UI : chat & upload
+UI --> API
 
-' Chat Retrieval (RAG)
-API --> RAG : Query + filters
-RAG --> VEC : ANN search (topK)
-RAG --> DB  : Join metadata
-RAG --> LLM : Build RAG answer
-LLM --> API
-API --> UI  : Stream answer + citations
+'--- Upload -> Ingest -> Index
+API --> ING : upload files
+ING --> VEC
+ING --> DB
+ING --> OBJ
 
-' Chat-Driven Document Generation
-API --> GEN : Create-doc intent + fields
-GEN --> LLM : Draft sections (grounded)
-GEN --> OBJ : Save DOCX/PDF (versioned)
-GEN --> DB  : Register document metadata
-API --> UI  : Return download link
+'--- Chat Retrieval (RAG)
+API --> RAG : query + filters
+RAG --> VEC
+RAG --> DB
+RAG --> LLM
+RAG --> API : answer + cites
+
+'--- Chat-Driven Generation (Agent)
+API --> AGENT : create-doc intent + fields
+AGENT --> RAG : optional context (snippets)
+AGENT --> LLM : draft sections
+AGENT --> OBJ : save DOCX/PDF
+AGENT --> DB  : register metadata
+AGENT --> API : link/status
+
+'--- Back to user
+API --> UI : stream answer / download link
 
 @enduml
