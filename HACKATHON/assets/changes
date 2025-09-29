@@ -1,239 +1,93 @@
-<div class="nav-item active" data-view="chat">
-  <i data-lucide="message-square" class="icon"></i>
-  Chat
-</div>
-<div class="nav-item" data-view="documents">
-  <i data-lucide="file-text" class="icon"></i>
-  Documents
-</div>
-
-<!-- Document Library (hidden by default) -->
-<div id="documents-page" style="display:none;">
-  <div class="documents-header" style="padding:16px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
-    <div style="display:flex; align-items:center; gap:12px;">
-      <div class="doc-icon"><i data-lucide="library" class="icon"></i></div>
-      <div>
-        <div style="font-size:16px; font-weight:600;">Document Library</div>
-        <div style="font-size:13px; color:var(--muted);">Search, filter and manage documents</div>
-      </div>
-    </div>
-    <button id="uploadDocsBtn" class="upload-btn" style="border:none; padding:8px 12px; border-radius:8px; cursor:pointer;">
-      <i data-lucide="upload" class="icon"></i>&nbsp;Upload Documents
-    </button>
-    <input id="uploadDocsInput" type="file" multiple accept=".pdf,.doc,.docx,.txt" style="display:none;">
-  </div>
-
-  <div class="documents-content" style="padding:16px 24px;">
-    <!-- Search + Filters -->
-    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
-      <input id="docSearch" class="search-box" placeholder="Search documents..." style="flex:1;">
-      <select id="docTypeSelect" class="search-box" style="max-width:180px;">
-        <option value="all">All Types</option>
-        <option value="pdf">PDF</option>
-        <option value="docx">DOCX</option>
-        <option value="txt">TXT</option>
-      </select>
-      <select id="docSortSelect" class="search-box" style="max-width:160px;">
-        <option value="date">Date</option>
-        <option value="name">Name</option>
-      </select>
-    </div>
-
-    <!-- Category chips -->
-    <div id="docChips" style="display:flex; gap:8px; margin-bottom:16px;">
-      <button class="chip active" data-cat="all">All (6)</button>
-      <button class="chip" data-cat="politics">Politics (2)</button>
-      <button class="chip" data-cat="operations">Operations (2)</button>
-      <button class="chip" data-cat="manual">Manual (2)</button>
-    </div>
-
-    <!-- List -->
-    <div id="docList" class="doc-list"></div>
-  </div>
-</div>
-
-<!-- Startup Agent Picker -->
-<div id="agent-modal" class="modal-backdrop" style="display:none;">
-  <div class="modal">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-      <div style="font-weight:600; font-size:16px;">Select an agent for conversation</div>
-      <button id="agentModalClose" class="modal-x" title="Close"><i data-lucide="x" class="icon"></i></button>
-    </div>
-    <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">Choose the AI assistant that best fits your needs.</div>
-
-    <div class="agent-grid">
-      <div class="agent-card" data-mode="retrieve">
-        <div class="agent-icon"><i data-lucide="search" class="icon"></i></div>
-        <div class="agent-title">Document Search Agent</div>
-        <div class="agent-tags">
-          <span>RAG</span><span>Document Retrieval</span><span>Q&amp;A</span>
-        </div>
-        <div class="agent-desc">Ask questions and retrieve information from your uploaded documents.</div>
-      </div>
-
-      <div class="agent-card" data-mode="create">
-        <div class="agent-icon"><i data-lucide="sparkles" class="icon"></i></div>
-        <div class="agent-title">Document Creator Agent</div>
-        <div class="agent-tags">
-          <span>GPT-4</span><span>Policy Creation</span><span>Template Building</span>
-        </div>
-        <div class="agent-desc">Generate new policies, procedures and operational documents.</div>
-      </div>
-    </div>
-  </div>
-</div>
-
-/* --- Modal --- */
-.modal-backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,.35);
-  display: flex; align-items: center; justify-content: center; z-index: 50;
-}
-.modal {
-  width: min(720px, 92vw);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 20px 80px rgba(0,0,0,.25);
-}
-.modal-x { background: transparent; border: none; cursor: pointer; padding: 6px; border-radius: 8px; }
-.modal-x:hover { background: var(--hover); }
-
-.agent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
-.agent-card {
-  border: 1px solid var(--border); border-radius: 10px; padding: 14px; cursor: pointer;
-  background: var(--panel);
-}
-.agent-card:hover { background: var(--hover); }
-.agent-icon { width: 44px; height: 44px; border-radius: 10px; background: var(--tile); display:flex; align-items:center; justify-content:center; margin-bottom: 8px; }
-.agent-title { font-weight: 600; margin-bottom: 6px; }
-.agent-tags span {
-  display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 999px; background: var(--tile); margin-right: 6px; margin-bottom: 6px;
-}
-.agent-desc { font-size: 12px; color: var(--muted); }
-
-/* --- Document Library --- */
-.doc-list { display: grid; gap: 10px; }
-.document-card {
-  display:flex; justify-content:space-between; align-items:flex-start; gap: 12px;
-  border:1px solid var(--border); border-radius:10px; padding:12px; background: var(--panel);
-}
-.doc-left { display:flex; gap:12px; }
-.doc-meta { font-size:12px; color:var(--muted); display:flex; gap:12px; margin-top:6px; }
-.doc-chip {
-  font-size:11px; padding: 3px 8px; border-radius: 999px; background: var(--tile); color: var(--text);
-}
-.chip {
-  border:1px solid var(--border); background: transparent; color: var(--text);
-  border-radius: 999px; padding: 6px 10px; font-size: 12px; cursor: pointer;
-}
-.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-
 <script>
-// ---------- View toggling ----------
-function toggleView(view){
-  const chatArea = document.querySelector('.chat-area');
-  const inputArea = document.querySelector('.input-area');
-  const docsPage = document.getElementById('documents-page');
-  const title = document.getElementById('convTitle');
-  const subtitle = document.getElementById('convSubtitle');
-
-  if (view === 'documents'){
-    if (chatArea) chatArea.style.display = 'none';
-    if (inputArea) inputArea.style.display = 'none';
-    if (docsPage) docsPage.style.display = 'block';
-    if (title) title.textContent = 'Document Library';
-    if (subtitle) subtitle.textContent = 'Search, filter and manage documents';
-  } else {
-    if (docsPage) docsPage.style.display = 'none';
-    if (chatArea) chatArea.style.display = 'flex';
-    if (inputArea) inputArea.style.display = 'block';
-    if (title) title.textContent = (getCurrentMode()==='create' ? 'Document Creation' : 'Document Retrieval');
-    if (subtitle) subtitle.textContent = (getCurrentMode()==='create' ? 'Generate policies and procedures' : 'Ask questions about your documents');
-  }
-  lucide.createIcons();
+// ----- helpers -----
+function humanSize(bytes){
+  if (typeof bytes !== 'number') return bytes || '';
+  const u = ['B','KB','MB','GB']; let i = 0; let n = bytes;
+  while (n >= 1024 && i < u.length-1) { n/=1024; i++; }
+  return i <= 1 ? `${n.toFixed(0)} ${u[i]}` : `${n.toFixed(1)} ${u[i]}`;
+}
+function typeFromMime(m){
+  if (!m) return '';
+  m = m.toLowerCase();
+  if (m.includes('pdf')) return 'pdf';
+  if (m.includes('wordprocessingml')) return 'docx';
+  if (m.includes('msword')) return 'doc';
+  if (m.includes('text')) return 'txt';
+  return '';
+}
+function extFromName(name){
+  const m = (name||'').toLowerCase().match(/\.(pdf|docx|doc|txt)$/);
+  return m ? m[1] : '';
 }
 
-// Wire sidebar clicks to toggle
-document.querySelectorAll('.nav-item[data-view]').forEach(el=>{
-  el.addEventListener('click', ()=> toggleView(el.dataset.view));
-});
+// ----- state -----
+let DOCS = [];
 
-// ---------- Agent picker modal ----------
-const agentModal = document.getElementById('agent-modal');
-function showAgentModal(){ if (agentModal) { agentModal.style.display = 'flex'; lucide.createIcons(); } }
-function hideAgentModal(){ if (agentModal) agentModal.style.display = 'none'; }
-
-function setMode(mode){ // 'retrieve' | 'create'
-  document.querySelectorAll('.mode-btn').forEach(b=> b.classList.remove('active'));
-  const buttons = Array.from(document.querySelectorAll('.mode-btn'));
-  const btn = buttons.find(b => b.textContent.trim().toLowerCase() === (mode==='create'?'create':'retrieve'));
-  if (btn) btn.classList.add('active');
-
-  const desc = document.querySelector('.mode-description');
-  if (desc) desc.textContent = (mode==='create' ? 'Create new content and documents' : 'Ask questions about uploaded documents');
-
-  const title = document.getElementById('convTitle');
-  const subtitle = document.getElementById('convSubtitle');
-  if (title) title.textContent = (mode==='create' ? 'Document Creation' : 'Document Retrieval');
-  if (subtitle) subtitle.textContent = (mode==='create' ? 'Generate policies and procedures' : 'Ask questions about your documents');
-
-  if (window.startChatUI) window.startChatUI();
-}
-
-// Modal interactions
-document.getElementById('agentModalClose')?.addEventListener('click', hideAgentModal);
-document.querySelectorAll('.agent-card').forEach(card=>{
-  card.addEventListener('click', ()=>{
-    const mode = card.dataset.mode;
-    setMode(mode);
-    hideAgentModal();
+// ----- fetch & map to UI shape -----
+async function fetchDocs(){
+  const res = await fetch('/uploads/index.json', { cache:'no-store' });
+  const raw = await res.json();
+  const arr = Array.isArray(raw) ? raw : (raw.documents || []);
+  DOCS = arr.map(it => {
+    const t = typeFromMime(it.mimetype) || extFromName(it.storedName || it.originalName);
+    return {
+      id: it.id || crypto.randomUUID?.() || String(Math.random()),
+      name: (it.originalName || it.storedName || '').replace(/\.(pdf|docx|doc|txt)$/i,''),
+      filename: it.storedName || it.originalName,
+      category: (it.category || 'other').toLowerCase(),
+      date: it.uploadedAt || it.date || '',
+      size: typeof it.size === 'number' ? humanSize(it.size) : (it.size || ''),
+      type: t,
+      url: it.url || `/uploads/${it.storedName || it.originalName}`
+    };
   });
-});
+}
 
-// Show the modal on first load (you can gate with localStorage if desired)
-document.addEventListener('DOMContentLoaded', ()=> {
-  showAgentModal(); // or gate behind localStorage flag
-});
+// ----- chips show correct counts -----
+function updateChipCounts(){
+  const countAll = DOCS.length;
+  const count = c => DOCS.filter(d => d.category === c).length;
+  const labels = {
+    all: `All (${countAll})`,
+    politics: `Politics (${count('politics')})`,
+    operations: `Operations (${count('operations')})`,
+    manual: `Manual (${count('manual')})`
+  };
+  Object.entries(labels).forEach(([cat,label])=>{
+    const el = document.querySelector(`#docChips .chip[data-cat="${cat}"]`);
+    if (el) el.textContent = label;
+  });
+}
 
-// ---------- Document Library demo data + filters ----------
-const DOCS = [
-  { id:1, name:'Data Privacy Policy v2.1', category:'politics', date:'2024-10-03', size:'1.8 MB',
-    summary:'Updated privacy policy outlining data collection, usage, and protection procedures in compliance with …', type:'pdf' },
-  { id:2, name:'Remote Work Policy', category:'politics', date:'2024-09-15', size:'940 KB',
-    summary:'Guidelines and requirements for remote work arrangements, equipment provision, and performance …', type:'pdf' },
-  { id:3, name:'Incident Response – Operations', category:'operations', date:'2024-07-02', size:'1.3 MB',
-    summary:'Escalation, containment, and recovery standard operating procedures for security incidents.', type:'docx' },
-  { id:4, name:'On-Call Runbook', category:'operations', date:'2024-06-10', size:'620 KB',
-    summary:'Step-by-step runbook for on-call engineers including KPIs and idempotent reconciliation.', type:'docx' },
-  { id:5, name:'Manual: Vendor Access', category:'manual', date:'2024-03-20', size:'1.1 MB',
-    summary:'Access provisioning and least-privilege checklist for external vendors.', type:'pdf' },
-  { id:6, name:'Manual: Device Hardening', category:'manual', date:'2024-02-01', size:'780 KB',
-    summary:'Baseline configurations for laptops, mobile devices and BYOD exceptions.', type:'pdf' },
-];
-
+// ----- render & filter -----
 function renderDocs(list){
   const host = document.getElementById('docList');
   if (!host) return;
-  host.innerHTML = list.map(d=> `
-    <div class="document-card" data-id="${d.id}" data-cat="${d.category}" data-type="${d.type}">
-      <div class="doc-left">
-        <div class="doc-icon"><i data-lucide="file-text" class="icon"></i></div>
-        <div>
-          <div style="font-weight:600;">${d.name}</div>
-          <div style="font-size:12px; color:var(--muted);">${d.summary}</div>
-          <div class="doc-meta">
-            <div><i data-lucide="calendar" class="icon"></i>&nbsp;${new Date(d.date).toLocaleDateString()}</div>
-            <div><i data-lucide="hard-drive" class="icon"></i>&nbsp;${d.size}</div>
+  host.innerHTML = list.map(d => {
+    const dateStr = d.date ? new Date(d.date).toLocaleDateString() : '';
+    const catLabel = d.category ? (d.category[0].toUpperCase()+d.category.slice(1)) : 'Other';
+    return `
+      <div class="document-card" data-id="${d.id}" data-cat="${d.category}" data-type="${d.type}">
+        <div class="doc-left">
+          <div class="doc-icon"><i data-lucide="file-text" class="icon"></i></div>
+          <div>
+            <div style="font-weight:600;">${d.name}</div>
+            <div style="font-size:12px; color:var(--muted);">${d.filename || ''}</div>
+            <div class="doc-meta">
+              <div><i data-lucide="calendar" class="icon"></i>&nbsp;${dateStr}</div>
+              <div><i data-lucide="hard-drive" class="icon"></i>&nbsp;${d.size}</div>
+            </div>
           </div>
         </div>
+        <div>
+          <span class="doc-chip">${catLabel}</span>
+          ${d.url ? `<a href="${d.url}" target="_blank" style="margin-left:8px;font-size:12px;">Open</a>` : ''}
+        </div>
       </div>
-      <div><span class="doc-chip">${capitalize(d.category)}</span></div>
-    </div>
-  `).join('');
-  lucide.createIcons();
+    `;
+  }).join('');
+  if (window.lucide) lucide.createIcons();
 }
-function capitalize(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
 
 function applyDocFilters(){
   const q = (document.getElementById('docSearch')?.value || '').toLowerCase();
@@ -241,49 +95,32 @@ function applyDocFilters(){
   const cat = activeChip ? activeChip.dataset.cat : 'all';
   const type = (document.getElementById('docTypeSelect')?.value || 'all');
 
-  let filtered = DOCS.filter(d=>{
-    const textHit = d.name.toLowerCase().includes(q) || d.summary.toLowerCase().includes(q);
+  let filtered = DOCS.filter(d => {
+    const textHit = (d.name+d.filename).toLowerCase().includes(q);
     const catHit = (cat==='all') || (d.category===cat);
     const typeHit = (type==='all') || (d.type===type);
     return textHit && catHit && typeHit;
   });
 
   const sort = (document.getElementById('docSortSelect')?.value || 'date');
-  if (sort === 'date'){
-    filtered = filtered.sort((a,b)=> new Date(b.date) - new Date(a.date));
-  } else {
-    filtered = filtered.sort((a,b)=> a.name.localeCompare(b.name));
-  }
+  if (sort === 'date') filtered.sort((a,b)=> new Date(b.date||0) - new Date(a.date||0));
+  else filtered.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
 
   renderDocs(filtered);
 }
 
-document.getElementById('docSearch')?.addEventListener('input', applyDocFilters);
-document.getElementById('docTypeSelect')?.addEventListener('change', applyDocFilters);
-document.getElementById('docSortSelect')?.addEventListener('change', applyDocFilters);
-document.querySelectorAll('#docChips .chip').forEach(ch=>{
-  ch.addEventListener('click', ()=>{
-    document.querySelectorAll('#docChips .chip').forEach(c=> c.classList.remove('active'));
-    ch.classList.add('active');
-    applyDocFilters();
-  });
-});
-
-// Upload button -> hidden input
-document.getElementById('uploadDocsBtn')?.addEventListener('click', ()=> document.getElementById('uploadDocsInput')?.click());
-document.getElementById('uploadDocsInput')?.addEventListener('change', (e)=>{
-  const files = Array.from(e.target.files||[]);
-  console.log('Upload TODO:', files.map(f=> f.name));
-});
-
-// Init docs on first entry to Documents
-let docsInitialized = false;
-function ensureDocsInit(){
-  if (docsInitialized) return;
-  docsInitialized = true;
-  renderDocs(DOCS);
+// ----- init -----
+async function initDocuments(){
+  await fetchDocs();
+  updateChipCounts();
   applyDocFilters();
 }
-// When the Documents tab is clicked the first time
+
+// If your nav switches views, call initDocuments() when Documents first appears:
+let docsInitialized = false;
+function ensureDocsInit(){
+  if (!docsInitialized){ docsInitialized = true; initDocuments(); }
+}
 document.querySelector('[data-view="documents"]')?.addEventListener('click', ensureDocsInit);
+// If the Library is visible on page load, just do: initDocuments();
 </script>
