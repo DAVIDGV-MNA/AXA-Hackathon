@@ -1,3 +1,5 @@
+$env:RAG_STORE_DIR="C:\...\Desktop\StreamlineCX\vectorstore"
+
 from pathlib import Path
 import os
 
