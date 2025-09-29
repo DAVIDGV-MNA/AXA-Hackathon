@@ -1,24 +1,26 @@
-    # Determine doc-level metadata once
-    sample_text = (pieces[0][0] if pieces else "")[:4000]
-    title = extract_title_from_text(sample_text)
-    doc_type = infer_doc_type(path, sample_text)
-    keywords = derive_keywords(title, path)
+INDEX_FILE = STORE_DIR / "index.faiss"
+META_FILE  = STORE_DIR / "meta.pkl"
+META_JSONL = STORE_DIR / "metadata.jsonl"
+DIM_FILE   = STORE_DIR / "dim.txt"
 
-    chunks = []
-    for text, page in pieces:
-        if not text.strip():
-            continue
-        for ch in simple_chunks(text):
-            if not ch.strip():
-                continue
-            chunks.append({
-                "id": str(uuid4()),
-                "text": ch,
-                "path": str(path),
-                "page": page,
-                # NEW METADATA:
-                "title": title,
-                "doc_type": doc_type,      # policy | process | manual | other
-                "keywords": keywords,
-            })
-    return chunks
+def _write_dim(dim: int):
+    DIM_FILE.write_text(str(dim), encoding="utf-8")
+
+def _read_dim() -> int | None:
+    try:
+        return int(DIM_FILE.read_text().strip())
+    except:
+        return None
+
+def save_metadata_jsonl(meta: List[Dict[str, Any]]):
+    with META_JSONL.open("w", encoding="utf-8") as f:
+        for m in meta:
+            # Keep doc-level fields per chunk for now (simple)
+            f.write(json.dumps({
+                "id": m["id"],
+                "path": m["path"],
+                "page": m.get("page", 1),
+                "title": m.get("title"),
+                "doc_type": m.get("doc_type"),
+                "keywords": m.get("keywords", []),
+            }, ensure_ascii=False) + "\n")
