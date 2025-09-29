@@ -1,63 +1,31 @@
-# --- NEW: text preprocessing -------------------------------------------------
-FOOTER_HINTS = [
-    r"\binternal\b", r"/internal", r"\bconfidential\b", r"\bpropietari[oa]\b",
-    r"axa\s+seguros", r"\bcdmx\b", r"benito\s+juárez", r"\btelefono\b|\btels?\.\b",
-    r"\baxa\.mx\b", r"\bapplications\.services\.axa-tech\b",
-    r"©\s*\d{4}", r"^\s*page\s*\d+\s*/\s*\d+\s*$", r"^\s*\d+\s*/\s*\d+\s*$"
-]
-FOOTER_RE = re.compile("|".join(FOOTER_HINTS), re.IGNORECASE)
+def load_pdf(path: Path) -> List[Tuple[str, int]]:
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(str(path))
+        pages = []
+        for i, p in enumerate(reader.pages):
+            try:
+                t = p.extract_text() or ""
+            except:
+                t = ""
+            t = preprocess_page_text(t)   # <-- NEW
+            pages.append((t, i + 1))
+        return pages
+    except:
+        return []
 
-EMAIL_RE   = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
-URL_RE     = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
-SLASH_RUNS = re.compile(r"/{2,}")
-WS_RUNS    = re.compile(r"\s+")
+def load_docx(path: Path) -> List[Tuple[str, int]]:
+    try:
+        import docx2txt
+        text = docx2txt.process(str(path)) or ""
+    except:
+        text = ""
+    # For DOCX we treat as single 'page'
+    return [(preprocess_page_text(text), 1)]  # <-- NEW
 
-def remove_footer_lines(text: str, keep_ratio: float = 0.75) -> str:
-    """Heuristic: drop bottom lines that look like footers if they trip our hints.
-    We only drop up to ~25% of the page content to be safe."""
-    lines = [ln.rstrip() for ln in text.splitlines()]
-    if not lines:
-        return text
-    # Scan from bottom while lines match footer hints
-    drop = 0
-    for ln in reversed(lines):
-        if FOOTER_RE.search(ln) or EMAIL_RE.search(ln) or URL_RE.search(ln):
-            drop += 1
-        else:
-            break
-    # Cap the drop to the allowed ratio
-    drop = min(drop, int(len(lines) * (1 - keep_ratio)))
-    if drop > 0:
-        lines = lines[:len(lines)-drop]
-    return "\n".join(lines)
-
-def normalize_whitespace(text: str) -> str:
-    text = SLASH_RUNS.sub("/", text)                 # collapse ////// to /
-    text = URL_RE.sub("", text)                      # strip URLs
-    text = EMAIL_RE.sub("", text)                    # strip emails
-    text = WS_RUNS.sub(" ", text).strip()            # collapse whitespace
-    return text
-
-def preprocess_page_text(raw: str) -> str:
-    """Full pass: strip footer/header junk and normalize."""
-    if not raw:
-        return ""
-    # remove common repeated footer/header fragments
-    cleaned = remove_footer_lines(raw)
-    cleaned = normalize_whitespace(cleaned)
-    # De-dupe pathological repetitions like 'internal internal internal'
-    toks = cleaned.split()
-    dedup = []
-    last = None
-    run = 0
-    for t in toks:
-        if t.lower() == (last or "").lower():
-            run += 1
-            if run <= 2:   # keep up to 2 in a row
-                dedup.append(t)
-        else:
-            run = 1
-            dedup.append(t)
-        last = t
-    return " ".join(dedup)
-# ---------------------------------------------------------------------------
+def load_txt_or_md(path: Path) -> List[Tuple[str, int]]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except:
+        text = ""
+    return [(preprocess_page_text(text), 1)]  # <-- NEW
