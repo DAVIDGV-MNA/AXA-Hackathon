@@ -1,53 +1,47 @@
-# ---- Embeddings (single, canonical) ----
-EMBED_DIM = os.getenv("EMBED_DIM")
-try:
-    EMBED_DIM = int(EMBED_DIM) if EMBED_DIM else None
-except:
-    EMBED_DIM = None
+import string
 
-def _bearer() -> str:
-    tok = access_token()
-    return f"Bearer {tok}"
+DOC_TYPE_PATTERNS = {
+    "policy":  re.compile(r"\b(policy|política|lineamiento|norma)\b", re.I),
+    "process": re.compile(r"\b(process|proceso|procedimiento|workflow|flujo)\b", re.I),
+    "manual":  re.compile(r"\b(manual|guía|guide|handbook)\b", re.I),
+}
 
-def embed_texts(texts: List[str]) -> np.ndarray:
-    """Batch embeddings; auto-detect dimension from result. Optional EMBED_DIM if your deployment supports it."""
-    if not texts:
-        return np.zeros((0, 1), dtype=np.float32)
+def infer_doc_type(path: Path, sample_text: str) -> str:
+    name = path.stem.lower()
+    haystack = (name + " " + (sample_text or "")[:2000]).lower()
+    for label, pat in DOC_TYPE_PATTERNS.items():
+        if pat.search(haystack):
+            return label
+    return "other"
 
-    safe_texts = [ (t or "")[:8000] for t in texts ]
-    out: List[np.ndarray] = []
+def extract_title_from_text(text: str) -> str:
+    # Prefer first Markdown-style H1
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("# "):
+            return line.lstrip("# ").strip()
+        # Heuristic: a “title-ish” first non-empty line without trailing punctuation
+        if 8 <= len(line) <= 120:
+            return line.strip(string.punctuation + " ").strip()
+    return "Untitled"
 
-    for batch in chunk_list(safe_texts, BATCH_SIZE):
-        payload = {
-            "input": batch,
-            "user": "MXS00000000A",
-            "input_type": "query",
-            "encoding_format": "float",
-        }
-        # Only send 'dimensions' if explicitly configured AND your model supports it.
-        if EMBED_DIM:
-            payload["dimensions"] = EMBED_DIM
+STOPWORDS = set("""
+the a an and or of de la el los las un una y o en para por con del al
+""".split())
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": _bearer(),
-        }
-        resp = requests.post(
-            SECUREGPT_EMBED_MODEL_URL,
-            json=payload,
-            headers=headers,
-            timeout=120,
-            proxies=BYPASS_PROXIES,
-            verify=False
-        )
-        if resp.status_code == 401:
-            raise RuntimeError("401 from embedding endpoint—check client credentials / scopes.")
-        if resp.status_code == 400:
-            raise RuntimeError(f"400 from embedding endpoint: {resp.text}")
-
-        resp.raise_for_status()
-        data = resp.json()
-        batch_embs = [np.asarray(item["embedding"], dtype=np.float32) for item in data["data"]]
-        out.extend(batch_embs)
-
-    return np.vstack(out)
+def derive_keywords(title: str, path: Path) -> List[str]:
+    base = (title or "") + " " + path.stem.replace("_"," ").replace("-"," ")
+    toks = re.findall(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]{3,}", base)
+    kw = [t.lower() for t in toks if t.lower() not in STOPWORDS]
+    # de-dup, keep a few
+    seen = set()
+    out = []
+    for k in kw:
+        if k not in seen:
+            seen.add(k)
+            out.append(k)
+        if len(out) >= 12:
+            break
+    return out
