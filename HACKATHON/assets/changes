@@ -1,10 +1,2 @@
-$env:RAG_STORE_DIR="C:\...\Desktop\StreamlineCX\vectorstore"
-
-from pathlib import Path
-import os
-
-# Pick a canonical folder (change this to your real path)
-DEFAULT_STORE = r"C:\Users\MXE02020289A\OneDrive\David Alejandro, AXA\01.WinDevice\Desktop\StreamlineCX\vectorstore"
-
-STORE_DIR = Path(os.getenv("RAG_STORE_DIR", DEFAULT_STORE)).resolve()
-STORE_DIR.mkdir(parents=True, exist_ok=True)
+# PowerShell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3500/rag/reindex
