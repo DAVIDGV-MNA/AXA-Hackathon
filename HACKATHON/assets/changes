@@ -1,5 +1,133 @@
-// Does the file exist at your server root?
-fetch('/uploads/index.json').then(r => console.log('status', r.status)).catch(console.error);
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
+import faiss, numpy as np, json, logging
+from fastapi import HTTPException
 
-// What does your code think DOCS is?
-console.log('DOCS length before init:', window.DOCS && window.DOCS.length);
+logger = logging.getLogger("rag")
+logger.setLevel(logging.INFO)
+
+class QueryIn(BaseModel):
+    query: str
+    history: List[Dict[str, Any]] = []
+    top_k: int = 5
+    doc_types: List[str] = []
+    must_keywords: List[str] = []
+    include_paths: List[str] = []
+    exclude_paths: List[str] = []
+    min_confidence: Optional[float] = 0.75
+    debug: bool = False            # NEW: include debug payload in response
+    debug_k: int = 15              # NEW: cap how many candidates to echo back
+
+@app.post("/rag/query")
+def rag_query(body: QueryIn):
+    idx, m = ensure_index_ready()
+    if idx is None or idx.ntotal == 0:
+        resp = {"answer": "No documents indexed yet. Upload files into ./uploads and call /rag/reindex.", "sources": []}
+        return resp
+
+    qvec = embed_texts([body.query]).astype(np.float32)
+    faiss.normalize_L2(qvec)
+
+    pool = max(body.top_k * 6, 30)
+    D, I = idx.search(qvec, pool)
+    I = I[0].tolist()
+    scores = D[0].tolist()
+
+    metric_is_ip = getattr(idx, "metric_type", faiss.METRIC_L2) == faiss.METRIC_INNER_PRODUCT
+
+    def to_similarity(raw: float) -> float:
+        r = float(raw)
+        # If using IP + unit vectors, raw is cosine similarity
+        if metric_is_ip:
+            return r
+        # IndexFlatL2 returns squared L2 distance; for unit vectors: sim = 1 - dist/2
+        return 1.0 - (r / 2.0)
+
+    def passes_metadata_filters(rmeta: Dict[str, Any]) -> bool:
+        if body.doc_types:
+            want = {d.lower() for d in body.doc_types}
+            if (rmeta.get("doc_type") or "other").lower() not in want:
+                return False
+        if body.must_keywords:
+            kws = {k.lower() for k in (rmeta.get("keywords") or [])}
+            need = {k.lower() for k in body.must_keywords}
+            if not need.issubset(kws):
+                return False
+        p = (rmeta.get("path") or "").lower()
+        if body.include_paths and not any(s.lower() in p for s in body.include_paths):
+            return False
+        if body.exclude_paths and any(s.lower() in p for s in body.exclude_paths):
+            return False
+        return True
+
+    picked, context_snips, sources = 0, [], []
+    all_candidates = []  # NEW: collect everything we saw
+
+    for row, raw_score in zip(I, scores):
+        if 0 <= row < len(m):
+            mr = m[row]
+            sim = to_similarity(raw_score)
+            meta_ok = passes_metadata_filters(mr)
+            conf_ok = (body.min_confidence is None) or (sim >= body.min_confidence)
+            cand = {
+                "path": mr.get("path"),
+                "page": int(mr.get("page", 0)),
+                "title": mr.get("title"),
+                "doc_type": mr.get("doc_type"),
+                "keywords": mr.get("keywords", []),
+                "similarity": round(sim, 4),
+                "raw_score": round(float(raw_score), 4),
+                "passes_metadata": meta_ok,
+                "passes_confidence": conf_ok,
+            }
+            all_candidates.append(cand)
+
+            if picked < body.top_k and meta_ok and conf_ok:
+                context_snips.append(mr["text"])
+                sources.append({
+                    "path": cand["path"],
+                    "page": cand["page"],
+                    "title": cand["title"],
+                    "doc_type": cand["doc_type"],
+                    "keywords": cand["keywords"],
+                    "similarity": cand["similarity"],
+                    "raw_score": cand["raw_score"],
+                })
+                picked += 1
+
+    # Build debug payload (even if no results made it through)
+    debug_payload = None
+    if body.debug:
+        debug_payload = {
+            "query": body.query,
+            "pool": pool,
+            "index_size": idx.ntotal,
+            "metric": "IP" if metric_is_ip else "L2",
+            "min_confidence": body.min_confidence,
+            "total_candidates": len(all_candidates),
+            "candidates_above_conf": sum(1 for c in all_candidates if c["passes_confidence"]),
+            "candidates_passing_metadata": sum(1 for c in all_candidates if c["passes_metadata"]),
+            "picked": len(sources),
+            "top_candidates": all_candidates[: body.debug_k],
+        }
+        # Log to server stdout
+        try:
+            logger.info("RAG DEBUG %s", json.dumps(debug_payload, ensure_ascii=False))
+        except Exception:
+            pass
+
+    if not context_snips:
+        resp = {"answer": "No results matched your filters.", "sources": []}
+        if debug_payload is not None:
+            resp["debug"] = debug_payload
+        return resp
+
+    try:
+        answer = llm_answer(body.query, context_snips)
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"SecureGPT chat error: {e}")
+
+    resp = {"answer": answer, "sources": sources}
+    if debug_payload is not None:
+        resp["debug"] = debug_payload
+    return resp
